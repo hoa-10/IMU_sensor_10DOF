@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0e17">
+<title>ESP32 9DOF IMU & MAG Tracker</title>
+<style>
+  :root {
+    --bg:#0a0e17; --card:rgba(17,22,35,.92); --border:rgba(255,255,255,.06);
+    --t:#f1f5f9; --dim:#64748b; --sub:#94a3b8;
+    --blue:#3b82f6; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --purple:#a78bfa;
+    --ax:#38bdf8; --ay:#34d399; --az:#fb7185;
+    --gx:#fb923c; --gy:#a78bfa; --gz:#fbbf24;
+    --mx:#e879f9; --my:#818cf8; --mz:#2dd4bf;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{
+    background:var(--bg);color:var(--t);
+    font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif;
+    min-height:100vh;min-height:100dvh;
+    padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    overflow-x:hidden;
+  }
+
+  /* Top Bar */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:14px 0;
+  }
+  .topbar h1{font-size:18px;font-weight:800;letter-spacing:-.3px}
+  .pill{
+    font-size:12px;font-weight:700;font-family:monospace;
+    padding:4px 10px;border-radius:14px;
+    background:rgba(34,197,94,.12);color:var(--green);
+    border:1px solid rgba(34,197,94,.25);
+  }
+
+  /* Connect Card */
+  .connect-card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:20px;padding:20px;margin-bottom:16px;
+    text-align:center;
+  }
+  .ble-icon{
+    width:64px;height:64px;margin:0 auto 12px;
+    border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:28px;
+    background:rgba(59,130,246,.12);border:2px solid rgba(59,130,246,.3);
+    transition:.3s;
+  }
+  .ble-icon.on{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4)}
+  .ble-icon.wait{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);animation:pulse2 1.5s infinite}
+  @keyframes pulse2{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+
+  .connect-name{font-size:15px;font-weight:700;margin-bottom:4px}
+  .connect-sub{font-size:13px;color:var(--sub);margin-bottom:16px}
+
+  .btn-connect{
+    width:100%;padding:14px;border-radius:14px;border:none;
+    font-size:16px;font-weight:700;cursor:pointer;color:#fff;
+    transition:.2s;
+  }
+  .btn-connect.blue{background:linear-gradient(135deg,#3b82f6,#2563eb);box-shadow:0 4px 20px rgba(37,99,235,.35)}
+  .btn-connect.blue:active{transform:scale(.97)}
+  .btn-connect.red{background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 4px 20px rgba(239,68,68,.3)}
+
+  /* Activity Selector */
+  .act-card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px 16px;margin-bottom:16px}
+  .act-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .act-title{font-size:13px;font-weight:700;color:#cbd5e1}
+  .act-selected{font-family:monospace;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;background:rgba(59,130,246,.15);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
+  .act-group-lbl{font-size:10px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px}
+  .act-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .act-grid.warn-grid{grid-template-columns:repeat(2,1fr)}
+  .act-btn{
+    padding:9px 4px;border-radius:10px;border:1px solid var(--border);
+    background:rgba(255,255,255,.03);color:var(--sub);font-size:12px;font-weight:600;
+    cursor:pointer;text-align:center;transition:.15s;
+  }
+  .act-btn:active{transform:scale(.95)}
+  .act-btn.active{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border-color:transparent;box-shadow:0 2px 10px rgba(37,99,235,.35);font-weight:700}
+  .act-btn.warn.active{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border-color:transparent;box-shadow:0 2px 10px rgba(239,68,68,.35);font-weight:700}
+
+  /* Live Data Tabs */
+  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+  .tab{
+    padding:10px 4px;border-radius:12px;text-align:center;
+    font-size:12px;font-weight:700;cursor:pointer;
+    background:rgba(255,255,255,.04);border:1px solid var(--border);
+    color:var(--dim);transition:.2s;
+  }
+  .tab.active{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.3);color:var(--blue)}
+
+  /* Values Grid */
+  .vals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+  .val-card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:14px;padding:12px 6px;text-align:center;
+  }
+  .val-label{font-size:11px;font-weight:700;font-family:monospace;margin-bottom:4px}
+  .val-num{font-family:monospace;font-size:18px;font-weight:800}
+  .val-card.x .val-label{color:var(--ax)} .val-card.y .val-label{color:var(--ay)} .val-card.z .val-label{color:var(--az)}
+  .val-card.gx .val-label{color:var(--gx)} .val-card.gy .val-label{color:var(--gy)} .val-card.gz .val-label{color:var(--gz)}
+  .val-card.mx .val-label{color:var(--mx)} .val-card.my .val-label{color:var(--my)} .val-card.mz .val-label{color:var(--mz)}
+
+  /* Chart */
+  .chart-wrap{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:16px;padding:12px;margin-bottom:16px;
+  }
+  .chart-head{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:8px;font-size:12px;color:var(--sub);
+  }
+  canvas{width:100%;height:120px;display:block;border-radius:10px;background:rgba(4,6,14,.5)}
+
+  /* Record Panel */
+  .rec-card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:20px;padding:20px;margin-bottom:16px;
+  }
+  .rec-card.active{border-color:rgba(239,68,68,.35);box-shadow:0 0 24px rgba(239,68,68,.08)}
+
+  .rec-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .rec-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .rdot{width:10px;height:10px;border-radius:50%;background:var(--dim);flex-shrink:0}
+  .rdot.on{background:var(--red);animation:blink 1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+  .rec-stats{display:flex;gap:8px;margin-bottom:16px}
+  .rstat{
+    flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.04);
+    border-radius:12px;padding:10px;text-align:center;
+  }
+  .rstat .rl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .rstat .rv{font-family:monospace;font-size:20px;font-weight:800;margin-top:2px}
+  .rstat:nth-child(1) .rv{color:var(--ax)}
+  .rstat:nth-child(2) .rv{color:var(--green)}
+  .rstat:nth-child(3) .rv{color:var(--amber)}
+
+  .rec-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .rbtn{
+    padding:14px;border-radius:14px;border:none;
+    font-size:14px;font-weight:700;cursor:pointer;color:#fff;
+    transition:.15s;
+  }
+  .rbtn:active{transform:scale(.96)}
+  .rbtn.start{background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 4px 14px rgba(34,197,94,.3)}
+  .rbtn.stop{background:linear-gradient(135deg,#ef4444,#dc2626)}
+  .rbtn.dl{background:linear-gradient(135deg,#8b5cf6,#7c3aed);box-shadow:0 4px 14px rgba(139,92,246,.3)}
+  .rbtn.clear{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1)}
+  .rbtn:disabled{opacity:.35;cursor:default;transform:none!important}
+
+  /* Modal */
+  .modal-box{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999;display:flex;align-items:flex-end;justify-content:center}
+  .modal-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);backdrop-filter:blur(6px)}
+  .modal-dialog{position:relative;background:#111726;border:1px solid rgba(255,255,255,.12);border-radius:24px 24px 0 0;width:100%;max-width:500px;padding:22px;z-index:1000;box-shadow:0 -10px 40px rgba(0,0,0,.6);max-height:85vh;overflow-y:auto}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .modal-close-btn{background:rgba(255,255,255,.1);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-weight:700;font-size:14px}
+  
+  .modal-action-btn{
+    width:100%;padding:14px 16px;border-radius:14px;border:none;margin-bottom:10px;
+    display:flex;align-items:center;gap:12px;cursor:pointer;color:#fff;text-align:left;transition:.15s;
+  }
+  .modal-action-btn:active{transform:scale(.98)}
+  .modal-action-btn.share{background:linear-gradient(135deg,#3b82f6,#2563eb);box-shadow:0 4px 14px rgba(37,99,235,.3)}
+  .modal-action-btn.copy{background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 4px 14px rgba(16,185,129,.3)}
+  .modal-action-btn.dl{background:linear-gradient(135deg,#8b5cf6,#7c3aed);box-shadow:0 4px 14px rgba(139,92,246,.3)}
+  .m-icon{font-size:22px}
+  .m-title{font-size:14px;font-weight:800}
+  .m-sub{font-size:11px;opacity:.8;margin-top:2px}
+  #csvPreviewArea{width:100%;height:85px;background:rgba(0,0,0,.45);color:#94a3b8;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px;font-family:monospace;font-size:10px;resize:none;line-height:1.4}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <h1>⚡ 9DOF IMU & MAG Tracker</h1>
+  <div class="pill" id="hzPill">0 Hz</div>
+</div>
+
+<!-- BLE Connect -->
+<div class="connect-card">
+  <div class="ble-icon" id="bleIcon">📡</div>
+  <div class="connect-name" id="bleName">Chưa kết nối thiết bị</div>
+  <div class="connect-sub" id="bleSub">Bấm nút để quét và kết nối ESP32 9DOF / BLE</div>
+  <button class="btn-connect blue" id="cBtn" onclick="go()">Kết nối Bluetooth</button>
+</div>
+
+<!-- Activity Label Selector -->
+<div class="act-card">
+  <div class="act-header">
+    <div class="act-title">Nhãn hoạt động</div>
+    <div class="act-selected" id="actSelectedDisplay">Đi bộ</div>
+  </div>
+  
+  <div class="act-group-lbl">Hoạt động bình thường</div>
+  <div class="act-grid">
+    <button class="act-btn active" onclick="selectActivity('Đi bộ', 'walking', this)">Đi bộ</button>
+    <button class="act-btn" onclick="selectActivity('Chạy bộ', 'running', this)">Chạy bộ</button>
+    <button class="act-btn" onclick="selectActivity('Đứng yên', 'standing', this)">Đứng yên</button>
+    <button class="act-btn" onclick="selectActivity('Ngồi', 'sitting', this)">Ngồi</button>
+    <button class="act-btn" onclick="selectActivity('Nằm', 'lying', this)">Nằm</button>
+    <button class="act-btn" onclick="selectActivity('Cầu thang', 'stairs', this)">Cầu thang</button>
+    <button class="act-btn" onclick="selectActivity('Nhảy', 'jumping', this)">Nhảy</button>
+    <button class="act-btn" onclick="selectActivity('Đạp xe', 'cycling', this)">Đạp xe</button>
+  </div>
+
+  <div class="act-group-lbl" style="margin-top:10px">Sự cố / Bất thường</div>
+  <div class="act-grid warn-grid">
+    <button class="act-btn warn" onclick="selectActivity('Ngã', 'fall', this)">Ngã</button>
+    <button class="act-btn warn" onclick="selectActivity('Khó thở', 'dyspnea', this)">Khó thở</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" id="tabAcc" onclick="setTab('acc')">Gia Tốc</div>
+  <div class="tab" id="tabGyr" onclick="setTab('gyr')">Con Quay</div>
+  <div class="tab" id="tabMag" onclick="setTab('mag')">Từ Kế</div>
+</div>
+
+<!-- 1. Accelerometer Panel -->
+<div id="panelAcc">
+  <div class="vals">
+    <div class="val-card x"><div class="val-label">AX (g)</div><div class="val-num" id="ax">0.00</div></div>
+    <div class="val-card y"><div class="val-label">AY (g)</div><div class="val-num" id="ay">0.00</div></div>
+    <div class="val-card z"><div class="val-label">AZ (g)</div><div class="val-num" id="az">0.00</div></div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-head"><span>Accelerometer (ADXL345)</span><span>±2.0g</span></div>
+    <canvas id="cA" width="380" height="120"></canvas>
+  </div>
+</div>
+
+<!-- 2. Gyroscope Panel -->
+<div id="panelGyr" style="display:none">
+  <div class="vals">
+    <div class="val-card gx"><div class="val-label">GX (°/s)</div><div class="val-num" id="gx">0.0</div></div>
+    <div class="val-card gy"><div class="val-label">GY (°/s)</div><div class="val-num" id="gy">0.0</div></div>
+    <div class="val-card gz"><div class="val-label">GZ (°/s)</div><div class="val-num" id="gz">0.0</div></div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-head"><span>Gyroscope (ITG3200 / MPU)</span><span>±250°/s</span></div>
+    <canvas id="cG" width="380" height="120"></canvas>
+  </div>
+</div>
+
+<!-- 3. Magnetometer Panel -->
+<div id="panelMag" style="display:none">
+  <div class="vals">
+    <div class="val-card mx"><div class="val-label">MX (µT)</div><div class="val-num" id="mx">0.0</div></div>
+    <div class="val-card my"><div class="val-label">MY (µT)</div><div class="val-num" id="my">0.0</div></div>
+    <div class="val-card mz"><div class="val-label">MZ (µT)</div><div class="val-num" id="mz">0.0</div></div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-head">
+      <span>Magnetometer (QMC5883L)</span>
+      <span id="magHeading" style="color:var(--mx);font-weight:700">🧭 Góc: 0° • |M|: 0.0 µT</span>
+    </div>
+    <canvas id="cM" width="380" height="120"></canvas>
+  </div>
+</div>
+
+<!-- Record Panel -->
+<div class="rec-card" id="recCard">
+  <div class="rec-top">
+    <div class="rec-title"><div class="rdot" id="rdot"></div> Thu thập dữ liệu Dataset</div>
+    <span style="font-size:12px;color:var(--dim)" id="recStatus">Sẵn sàng</span>
+  </div>
+  <div class="rec-stats">
+    <div class="rstat"><div class="rl">Mẫu</div><div class="rv" id="rCnt">0</div></div>
+    <div class="rstat"><div class="rl">Thời gian</div><div class="rv" id="rTime">00:00</div></div>
+    <div class="rstat"><div class="rl">Tốc độ</div><div class="rv" id="rHz">0</div></div>
+  </div>
+  <div class="rec-btns">
+    <button class="rbtn start" id="bStart" onclick="startRec()">▶ Bắt đầu ghi</button>
+    <button class="rbtn stop" id="bStop" onclick="stopRec()" disabled>⏸ Dừng</button>
+    <button class="rbtn dl" id="bDl" onclick="openExportModal()" disabled>💾 Tải / Xuất CSV</button>
+    <button class="rbtn clear" onclick="clearRec()">🗑 Xoá</button>
+  </div>
+</div>
+
+<!-- Export Modal for iOS & Android -->
+<div id="exportModal" class="modal-box" style="display:none">
+  <div class="modal-backdrop" onclick="closeExportModal()"></div>
+  <div class="modal-dialog">
+    <div class="modal-head">
+      <div style="font-weight:800;font-size:16px">💾 Xuất Dataset 9DOF (<span id="modalSamples">0</span> mẫu)</div>
+      <button class="modal-close-btn" onclick="closeExportModal()">✕</button>
+    </div>
+    <div class="modal-content-inner">
+      <p style="font-size:12px;color:var(--sub);margin-bottom:12px">File CSV đầy đủ 9 trục thông số + nhãn hành vi:</p>
+
+      <button class="modal-action-btn share" onclick="actionShare()">
+        <span class="m-icon">📤</span>
+        <div class="m-text">
+          <div class="m-title">Chia sẻ / Lưu vào Tệp</div>
+          <div class="m-sub">Mở menu iOS/Android để gửi qua Zalo, Drive, Tệp</div>
+        </div>
+      </button>
+
+      <button class="modal-action-btn copy" onclick="actionCopy()">
+        <span class="m-icon">📋</span>
+        <div class="m-text">
+          <div class="m-title" id="copyBtnTitle">Sao chép toàn bộ CSV</div>
+          <div class="m-sub">Copy 1 chạm để dán (Paste) vào Google Sheets, Zalo</div>
+        </div>
+      </button>
+
+      <button class="modal-action-btn dl" onclick="actionDirectDownload()">
+        <span class="m-icon">📥</span>
+        <div class="m-text">
+          <div class="m-title">Tải file .csv về máy</div>
+          <div class="m-sub">Tự động tải về thư mục Downloads</div>
+        </div>
+      </button>
+
+      <div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:700;color:var(--dim)">Xem trước dữ liệu CSV (9DOF):</span>
+          <span style="font-size:11px;color:var(--blue);cursor:pointer" onclick="selectPreviewText()">Bôi đen tất cả</span>
+        </div>
+        <textarea id="csvPreviewArea" readonly></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SVC = "19b10000-e8f2-537e-4f6c-d104768a1214";
+const CHR = "19b10001-e8f2-537e-4f6c-d104768a1214";
+
+const $ = id => document.getElementById(id);
+const N = 120;
+let dev = null, aH = [], gH = [], mH = [], pc = 0, lt = performance.now();
+let rec = false, csv = [], recStart = 0, rCnt = 0;
+let curTab = 'acc';
+let curActivityName = 'Đi bộ', curActivityKey = 'walking';
+
+function selectActivity(name, key, btn){
+  curActivityName = name;
+  curActivityKey = key;
+  $('actSelectedDisplay').textContent = name;
+  document.querySelectorAll('.act-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// Tab switching
+function setTab(t){
+  curTab = t;
+  $('panelAcc').style.display = t === 'acc' ? 'block' : 'none';
+  $('panelGyr').style.display = t === 'gyr' ? 'block' : 'none';
+  $('panelMag').style.display = t === 'mag' ? 'block' : 'none';
+
+  $('tabAcc').className = 'tab' + (t === 'acc' ? ' active' : '');
+  $('tabGyr').className = 'tab' + (t === 'gyr' ? ' active' : '');
+  $('tabMag').className = 'tab' + (t === 'mag' ? ' active' : '');
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+// BLE Connect
+async function go(){
+  if(dev && dev.gatt.connected){ dev.gatt.disconnect(); return; }
+  if(!navigator.bluetooth){ alert("Vui lòng dùng trình duyệt Google Chrome hoặc Edge!"); return; }
+  try{
+    $('bleIcon').className = 'ble-icon wait';
+    $('bleName').textContent = 'Đang quét thiết bị...';
+    $('bleSub').textContent = 'Chọn ESP32_IMU trong danh sách';
+
+    try {
+      dev = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [SVC] },
+          { namePrefix: 'ESP32' },
+          { namePrefix: 'IMU' },
+          { namePrefix: 'Nano' },
+          { namePrefix: 'Arduino' }
+        ],
+        optionalServices: [SVC]
+      });
+    } catch (filterErr) {
+      if (filterErr.name === 'NotFoundError') {
+        dev = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: [SVC]
+        });
+      } else {
+        throw filterErr;
+      }
+    }
+    dev.addEventListener('gattserverdisconnected', onDC);
+    await doConnect();
+  } catch(e){
+    $('bleIcon').className = 'ble-icon';
+    $('bleName').textContent = 'Chưa kết nối';
+    $('bleSub').textContent = e.message;
+  }
+}
+
+async function doConnect(retries = 3){
+  for(let i = 1; i <= retries; i++){
+    try{
+      $('bleIcon').className = 'ble-icon wait';
+      $('bleName').textContent = `Kết nối ${dev.name}... (${i}/${retries})`;
+      $('bleSub').textContent = 'Đang bắt tay GATT...';
+
+      const srv = await dev.gatt.connect();
+      await sleep(800);
+      const svc = await srv.getPrimaryService(SVC);
+      await sleep(300);
+      const ch = await svc.getCharacteristic(CHR);
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged', onData);
+
+      $('bleIcon').className = 'ble-icon on';
+      $('bleIcon').textContent = '📶';
+      $('bleName').textContent = dev.name || 'ESP32 9DOF IMU';
+      $('bleSub').textContent = 'Đang stream dữ liệu 9 trục realtime 50Hz';
+      $('cBtn').textContent = 'Ngắt kết nối';
+      $('cBtn').className = 'btn-connect red';
+      return;
+    } catch(e){
+      if(dev && dev.gatt.connected) dev.gatt.disconnect();
+      if(i < retries) await sleep(2000);
+      else {
+        $('bleIcon').className = 'ble-icon';
+        $('bleName').textContent = 'Kết nối thất bại';
+        $('bleSub').textContent = e.message + ' — Bấm thử lại';
+      }
+    }
+  }
+}
+
+function onDC(){
+  $('bleIcon').className = 'ble-icon'; $('bleIcon').textContent = '📡';
+  $('bleName').textContent = 'Đã ngắt kết nối';
+  $('bleSub').textContent = 'Bấm nút để kết nối lại';
+  $('cBtn').textContent = 'Kết nối Bluetooth'; $('cBtn').className = 'btn-connect blue';
+  $('hzPill').textContent = '0 Hz';
+  if(dev){
+    setTimeout(() => { if(dev && !dev.gatt.connected) doConnect(2); }, 2000);
+  }
+}
+
+// Data Parser
+function onData(e){
+  const d = e.target.value;
+  if(d.byteLength < 12) return;
+  pc++;
+
+  // 1. Gia tốc (ADXL345)
+  const ax = d.getInt16(0, true) / 1000.0;
+  const ay = d.getInt16(2, true) / 1000.0;
+  const az = d.getInt16(4, true) / 1000.0;
+
+  // 2. Con quay hồi chuyển (ITG3200/MPU)
+  const gx = d.getInt16(6, true) / 10.0;
+  const gy = d.getInt16(8, true) / 10.0;
+  const gz = d.getInt16(10, true) / 10.0;
+
+  // 3. Từ kế (QMC5883L)
+  let mx = 0.0, my = 0.0, mz = 0.0;
+  if(d.byteLength >= 18){
+    mx = d.getInt16(12, true) / 10.0;
+    my = d.getInt16(14, true) / 10.0;
+    mz = d.getInt16(16, true) / 10.0;
+  }
+
+  // Cập nhật text giao diện
+  $('ax').textContent = ax.toFixed(2);
+  $('ay').textContent = ay.toFixed(2);
+  $('az').textContent = az.toFixed(2);
+
+  $('gx').textContent = gx.toFixed(1);
+  $('gy').textContent = gy.toFixed(1);
+  $('gz').textContent = gz.toFixed(1);
+
+  $('mx').textContent = mx.toFixed(1);
+  $('my').textContent = my.toFixed(1);
+  $('mz').textContent = mz.toFixed(1);
+
+  // Tính góc La bàn (Heading) & Tổng độ lớn từ trường |M|
+  const heading = ((Math.atan2(my, mx) * 180 / Math.PI) + 360) % 360;
+  const magNorm = Math.sqrt(mx * mx + my * my + mz * mz);
+  if ($('magHeading')) {
+    $('magHeading').textContent = `🧭 Góc: ${heading.toFixed(0)}° • |M|: ${magNorm.toFixed(1)} µT`;
+  }
+
+  // Bộ đệm vẽ đồ thị
+  aH.push([ax, ay, az]); if(aH.length > N) aH.shift();
+  gH.push([gx, gy, gz]); if(gH.length > N) gH.shift();
+  mH.push([mx, my, mz]); if(mH.length > N) mH.shift();
+
+  // Ghi Dataset
+  if(rec){
+    const row = `${performance.now().toFixed(1)},${ax.toFixed(4)},${ay.toFixed(4)},${az.toFixed(4)},${gx.toFixed(2)},${gy.toFixed(2)},${gz.toFixed(2)},${mx.toFixed(2)},${my.toFixed(2)},${mz.toFixed(2)},${curActivityKey}`;
+    csv.push(row);
+    rCnt++;
+  }
+}
+
+// Render Loops
+const cA = $('cA').getContext('2d'), cG = $('cG').getContext('2d'), cM = $('cM').getContext('2d');
+const cAc = $('cA'), cGc = $('cG'), cMc = $('cM');
+
+function render(){
+  requestAnimationFrame(render);
+  const now = performance.now();
+  if(now - lt >= 1000){
+    const h = pc; $('hzPill').textContent = h + ' Hz'; pc = 0; lt = now;
+    if(rec) $('rHz').textContent = h;
+  }
+  if(rec){
+    const el = Math.floor((now - recStart) / 1000);
+    $('rTime').textContent = String(Math.floor(el / 60)).padStart(2, '0') + ':' + String(el % 60).padStart(2, '0');
+    $('rCnt').textContent = rCnt;
+  }
+  if(curTab === 'acc') draw(cA, cAc, aH, 2, ['#38bdf8', '#34d399', '#fb7185']);
+  else if(curTab === 'gyr') draw(cG, cGc, gH, 250, ['#fb923c', '#a78bfa', '#fbbf24']);
+  else if(curTab === 'mag') draw(cM, cMc, mH, 50, ['#e879f9', '#818cf8', '#2dd4bf']);
+}
+
+function draw(ctx, cv, h, s, c){
+  const w = cv.width, hh = cv.height;
+  ctx.clearRect(0, 0, w, hh);
+  ctx.strokeStyle = 'rgba(255,255,255,.05)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, hh / 2); ctx.lineTo(w, hh / 2); ctx.stroke();
+  if(h.length < 2) return;
+  const mid = hh / 2, sc = mid / s;
+  for(let a = 0; a < 3; a++){
+    ctx.beginPath();
+    ctx.strokeStyle = c[a];
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    h.forEach((p, i) => {
+      const x = i / (N - 1) * w;
+      const y = Math.max(1, Math.min(hh - 1, mid - p[a] * sc));
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+}
+
+// Record Controls
+function startRec(){
+  rec = true;
+  csv = [];
+  rCnt = 0;
+  recStart = performance.now();
+  $('recCard').classList.add('active');
+  $('rdot').classList.add('on');
+  $('recStatus').textContent = 'Đang ghi...';
+  $('bStart').disabled = true;
+  $('bStop').disabled = false;
+  $('bDl').disabled = true;
+  $('rCnt').textContent = '0';
+  $('rTime').textContent = '00:00';
+  $('rHz').textContent = '0';
+}
+
+function stopRec(){
+  rec = false;
+  $('recCard').classList.remove('active');
+  $('rdot').classList.remove('on');
+  $('recStatus').textContent = `Đã thu ${rCnt} mẫu`;
+  $('bStart').disabled = false;
+  $('bStart').textContent = '▶ Ghi tiếp';
+  $('bStop').disabled = true;
+  if(csv.length > 0){
+    $('bDl').disabled = false;
+  }
+}
+
+function getFilename(){
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mmdd = `${mm}${dd}`;
+
+  const storageKey = `actCount_${curActivityKey}_${mmdd}`;
+  let count = parseInt(localStorage.getItem(storageKey) || '1', 10);
+  const countStr = String(count).padStart(2, '0');
+  return `${curActivityKey}_${mmdd}_${countStr}.csv`;
+}
+
+function incrementCounter(){
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mmdd = `${mm}${dd}`;
+
+  const storageKey = `actCount_${curActivityKey}_${mmdd}`;
+  let count = parseInt(localStorage.getItem(storageKey) || '1', 10);
+  localStorage.setItem(storageKey, String(count + 1));
+}
+
+const CSV_HEADER = 'timestamp_ms,accX_g,accY_g,accZ_g,gyrX_dps,gyrY_dps,gyrZ_dps,magX_uT,magY_uT,magZ_uT,activity\n';
+
+function openExportModal(){
+  if(!csv.length){
+    alert("Chưa có dữ liệu để xuất!");
+    return;
+  }
+  const filename = getFilename();
+  const csvContent = CSV_HEADER + csv.join('\n');
+  $('modalSamples').textContent = `${csv.length} mẫu • ${filename}`;
+  $('csvPreviewArea').value = csvContent;
+  $('exportModal').style.display = 'flex';
+}
+
+function closeExportModal(){
+  $('exportModal').style.display = 'none';
+}
+
+async function actionShare(){
+  if(!csv.length) return;
+  const filename = getFilename();
+  const csvContent = CSV_HEADER + csv.join('\n');
+
+  try {
+    const file = new File([csvContent], filename, { type: 'text/csv' });
+    if(navigator.canShare && navigator.canShare({ files: [file] })){
+      await navigator.share({
+        title: filename,
+        text: `Dữ liệu 9DOF ${filename} (${csv.length} mẫu)`,
+        files: [file]
+      });
+      incrementCounter();
+      return;
+    }
+  } catch(err){
+    if(err.name === 'AbortError') return;
+  }
+
+  if(navigator.share){
+    try {
+      await navigator.share({
+        title: filename,
+        text: csvContent
+      });
+      incrementCounter();
+      return;
+    } catch(e){}
+  }
+
+  actionCopy();
+}
+
+function actionCopy(){
+  if(!csv.length) return;
+  const filename = getFilename();
+  const csvContent = CSV_HEADER + csv.join('\n');
+  
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(csvContent).then(() => {
+      $('copyBtnTitle').textContent = '✅ Đã Copy thành công!';
+      setTimeout(() => { $('copyBtnTitle').textContent = 'Sao chép toàn bộ CSV'; }, 2500);
+      alert(`✅ Đã copy ${csv.length} dòng dữ liệu (${filename})! Bạn có thể dán (Paste) vào Google Sheets, Zalo, Excel.`);
+      incrementCounter();
+    }).catch(() => fallbackManualCopy(csvContent));
+  } else {
+    fallbackManualCopy(csvContent);
+  }
+}
+
+function fallbackManualCopy(text){
+  const ta = $('csvPreviewArea');
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    alert(`✅ Đã copy dữ liệu!`);
+  } catch(e){
+    alert("Vui lòng bôi đen dữ liệu trong khung bên dưới và bấm Sao chép.");
+  }
+}
+
+function actionDirectDownload(){
+  if(!csv.length) return;
+  const filename = getFilename();
+  const csvContent = CSV_HEADER + csv.join('\n');
+
+  try {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+    incrementCounter();
+  } catch(e){
+    const dataUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+    window.open(dataUri, '_blank');
+  }
+}
+
+function selectPreviewText(){
+  const ta = $('csvPreviewArea');
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, 999999);
+}
+
+function clearRec(){
+  rec = false;
+  csv = [];
+  rCnt = 0;
+  $('recCard').classList.remove('active');
+  $('rdot').classList.remove('on');
+  $('recStatus').textContent = 'Sẵn sàng';
+  $('bStart').disabled = false;
+  $('bStart').textContent = '▶ Bắt đầu ghi';
+  $('bStop').disabled = true;
+  $('bDl').disabled = true;
+  $('rCnt').textContent = '0';
+  $('rTime').textContent = '00:00';
+  $('rHz').textContent = '0';
+  closeExportModal();
+}
+
+render();
+</script>
+</body>
+</html>

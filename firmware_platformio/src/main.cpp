@@ -16,6 +16,7 @@ NimBLEServer* pServer = nullptr;
 NimBLECharacteristic* pCharacteristic = nullptr;
 bool deviceConnected = false;
 
+// 18 bytes = 9 x int16
 int16_t packet[9] = {0};
 
 float ax = 0.0f, ay = 0.0f, az = 0.0f;
@@ -24,7 +25,6 @@ float mx = 0.0f, my = 0.0f, mz = 0.0f;
 
 bool isITG3200 = false;
 bool isMPU6050 = false;
-
 float gx_offset = 0.0f, gy_offset = 0.0f, gz_offset = 0.0f;
 
 class ServerCallbacks: public NimBLEServerCallbacks {
@@ -40,7 +40,7 @@ class ServerCallbacks: public NimBLEServerCallbacks {
 uint8_t readReg(uint8_t addr, uint8_t reg) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
-  Wire.endTransmission(true); // Gửi STOP chuẩn
+  Wire.endTransmission(false);
   Wire.requestFrom((int)addr, (int)1);
   if (Wire.available()) return Wire.read();
   return 0xFF;
@@ -50,13 +50,13 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
   Wire.write(val);
-  Wire.endTransmission(true);
+  Wire.endTransmission();
 }
 
 void initSensors() {
   // 1. ADXL345
-  writeReg(ADXL345_ADDR, 0x2D, 0x08); // Measure Mode
-  writeReg(ADXL345_ADDR, 0x31, 0x08); // Full Resolution, ±2g
+  writeReg(ADXL345_ADDR, 0x2D, 0x08);
+  writeReg(ADXL345_ADDR, 0x31, 0x08);
 
   // 2. Gyroscope
   uint8_t who75 = readReg(GYRO_ADDR, 0x75);
@@ -69,21 +69,21 @@ void initSensors() {
     writeReg(GYRO_ADDR, 0x16, 0x18);
   }
 
-  // 3. QMC5883L
-  writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Soft reset
+  // 3. QMC5883L Magnetometer
+  writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Reset
   delay(50);
   writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // Set/Reset Period
   delay(10);
-  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Continuous mode, 200Hz, 8G, 512 OSR
-  delay(10);
+  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Continuous 200Hz, 8G, 512 OSR
+  delay(20);
 
-  // Calib gyro
+  // Calib gyro tĩnh
   float sx = 0, sy = 0, sz = 0;
   for (int i = 0; i < 50; i++) {
     uint8_t reg = isMPU6050 ? 0x43 : 0x1D;
     Wire.beginTransmission(GYRO_ADDR);
     Wire.write(reg);
-    Wire.endTransmission(true);
+    Wire.endTransmission(false);
     Wire.requestFrom((int)GYRO_ADDR, (int)6);
     if (Wire.available() >= 6) {
       int16_t rx = (Wire.read() << 8) | Wire.read();
@@ -105,7 +105,7 @@ void readSensors() {
   // 1. Gia tốc ADXL345
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
-  Wire.endTransmission(true);
+  Wire.endTransmission(false);
   Wire.requestFrom((int)ADXL345_ADDR, (int)6);
   if (Wire.available() >= 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
@@ -120,7 +120,7 @@ void readSensors() {
   uint8_t reg = isMPU6050 ? 0x43 : 0x1D;
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(reg);
-  Wire.endTransmission(true);
+  Wire.endTransmission(false);
   Wire.requestFrom((int)GYRO_ADDR, (int)6);
   if (Wire.available() >= 6) {
     int16_t rx = (Wire.read() << 8) | Wire.read();
@@ -132,18 +132,20 @@ void readSensors() {
     gz = ((float)rz / scale) - gz_offset;
   }
 
-  // 3. Từ kế QMC5883L (Đọc bắt đầu từ 0x00 với endTransmission(true) và đọc 6 byte)
+  // 3. Từ kế QMC5883L
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x00);
-  Wire.endTransmission(true);
+  Wire.endTransmission(false);
   Wire.requestFrom((int)QMC_MAG_ADDR, (int)6);
   if (Wire.available() >= 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
     int16_t ry = Wire.read() | (Wire.read() << 8);
     int16_t rz = Wire.read() | (Wire.read() << 8);
-    mx = (float)rx / 30.0f; // uT
-    my = (float)ry / 30.0f;
-    mz = (float)rz / 30.0f;
+    if (rx != 0 || ry != 0 || rz != 0) {
+      mx = (float)rx / 30.0f; // uT
+      my = (float)ry / 30.0f;
+      mz = (float)rz / 30.0f;
+    }
   }
 }
 
@@ -151,10 +153,9 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  Wire.begin(SDA_PIN, SCL_PIN, 400000);
+  Wire.begin(SDA_PIN, SCL_PIN, 100000);
   initSensors();
 
-  // Khởi tạo BLE
   NimBLEDevice::init("ESP32_IMU");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 

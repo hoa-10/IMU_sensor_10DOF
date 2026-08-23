@@ -44,23 +44,19 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
 
 void initSensors() {
   // 1. ADXL345 (Gia toc)
-  writeReg(ADXL345_ADDR, 0x2D, 0x08); // Measurement mode
-  writeReg(ADXL345_ADDR, 0x31, 0x08); // Full res, +/- 2g
+  writeReg(ADXL345_ADDR, 0x2D, 0x08);
+  writeReg(ADXL345_ADDR, 0x31, 0x08);
 
-  // 2. Gyroscope (0x68) - ITG3200 / MPU
-  writeReg(GYRO_ADDR, 0x6B, 0x00); // Wake up if MPU
-  writeReg(GYRO_ADDR, 0x3E, 0x00); // Wake up if ITG3200
-  writeReg(GYRO_ADDR, 0x16, 0x18); // ITG3200 +/-2000dps, 100Hz DLPF
-  writeReg(GYRO_ADDR, 0x6A, 0x00); // Disable I2C master
-  writeReg(GYRO_ADDR, 0x37, 0x02); // Enable bypass
+  // 2. Gyroscope (ITG3200 / MPU)
+  writeReg(GYRO_ADDR, 0x6B, 0x00);
+  writeReg(GYRO_ADDR, 0x3E, 0x00);
+  writeReg(GYRO_ADDR, 0x16, 0x18);
+  writeReg(GYRO_ADDR, 0x6A, 0x00);
+  writeReg(GYRO_ADDR, 0x37, 0x02);
 
-  // 3. QMC5883L Magnetometer (0x0C)
-  writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Soft reset
-  delay(50);
-  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // SET/RESET Period = 1
-  delay(10);
-  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Mode continuous 200Hz, 8G, OSR 512
-  delay(20);
+  // 3. QMC5883L Magnetometer
+  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // SET/RESET Period
+  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Config continuous mode
 
   // Calib gyro tinh 50 mau
   float sx = 0, sy = 0, sz = 0;
@@ -97,7 +93,7 @@ void readSensors() {
     az = (float)rz * 0.0039f;
   }
 
-  // 2. Con quay Gyro
+  // 2. Con quay Gyro (ITG3200)
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(0x1D);
   Wire.endTransmission(true);
@@ -110,7 +106,12 @@ void readSensors() {
     gz = ((float)rz / 14.375f) - gz_offset;
   }
 
-  // 3. Tu ke QMC5883L (0x0C)
+  // 3. Tu ke QMC5883L (0x0C) - Active sampling cycle
+  Wire.beginTransmission(QMC_MAG_ADDR);
+  Wire.write(0x0A);
+  Wire.write(0x01); // Trigger new measurement
+  Wire.endTransmission(true);
+
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x00);
   Wire.endTransmission(true);

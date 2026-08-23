@@ -23,8 +23,6 @@ float ax = 0.0f, ay = 0.0f, az = 0.0f;
 float gx = 0.0f, gy = 0.0f, gz = 0.0f;
 float mx = 0.0f, my = 0.0f, mz = 0.0f;
 
-bool isITG3200 = false;
-bool isMPU6050 = false;
 float gx_offset = 0.0f, gy_offset = 0.0f, gz_offset = 0.0f;
 
 class ServerCallbacks: public NimBLEServerCallbacks {
@@ -37,15 +35,6 @@ class ServerCallbacks: public NimBLEServerCallbacks {
     }
 };
 
-uint8_t readReg(uint8_t addr, uint8_t reg) {
-  Wire.beginTransmission(addr);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  Wire.requestFrom((uint8_t)addr, (size_t)1, (bool)true);
-  if (Wire.available()) return Wire.read();
-  return 0xFF;
-}
-
 void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -54,47 +43,40 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 void initSensors() {
-  // 1. ADXL345
-  writeReg(ADXL345_ADDR, 0x2D, 0x08);
-  writeReg(ADXL345_ADDR, 0x31, 0x08);
+  // 1. ADXL345 (Gia toc)
+  writeReg(ADXL345_ADDR, 0x2D, 0x08); // Measurement mode
+  writeReg(ADXL345_ADDR, 0x31, 0x08); // Full res, +/- 2g
 
-  // 2. Gyroscope
-  uint8_t who75 = readReg(GYRO_ADDR, 0x75);
-  if (who75 == 0x68 || who75 == 0x71 || who75 == 0x70) {
-    isMPU6050 = true;
-    writeReg(GYRO_ADDR, 0x6B, 0x00);
-  } else {
-    isITG3200 = true;
-    writeReg(GYRO_ADDR, 0x3E, 0x00);
-    writeReg(GYRO_ADDR, 0x16, 0x18);
-  }
+  // 2. Gyroscope (0x68) - ITG3200 / MPU
+  writeReg(GYRO_ADDR, 0x6B, 0x00); // Wake up if MPU
+  writeReg(GYRO_ADDR, 0x3E, 0x00); // Wake up if ITG3200
+  writeReg(GYRO_ADDR, 0x16, 0x18); // ITG3200 +/-2000dps, 100Hz DLPF
+  writeReg(GYRO_ADDR, 0x6A, 0x00); // Disable I2C master
+  writeReg(GYRO_ADDR, 0x37, 0x02); // Enable bypass
 
-  // 3. QMC5883L Magnetometer
-  writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Reset
+  // 3. QMC5883L Magnetometer (0x0C)
+  writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Soft reset
   delay(50);
-  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // Set period
+  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // SET/RESET Period = 1
   delay(10);
-  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Continuous 200Hz, 8G, 512 OSR
+  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Mode continuous 200Hz, 8G, OSR 512
   delay(20);
 
-  // Calib gyro tĩnh
+  // Calib gyro tinh 50 mau
   float sx = 0, sy = 0, sz = 0;
   for (int i = 0; i < 50; i++) {
-    uint8_t reg = isMPU6050 ? 0x43 : 0x1D;
     Wire.beginTransmission(GYRO_ADDR);
-    Wire.write(reg);
-    Wire.endTransmission(false);
-    Wire.requestFrom((uint8_t)GYRO_ADDR, (size_t)6, (bool)true);
-    if (Wire.available() >= 6) {
+    Wire.write(0x1D);
+    Wire.endTransmission(true);
+    if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
       int16_t rx = (Wire.read() << 8) | Wire.read();
       int16_t ry = (Wire.read() << 8) | Wire.read();
       int16_t rz = (Wire.read() << 8) | Wire.read();
-      float scale = isMPU6050 ? 131.0f : 14.375f;
-      sx += (float)rx / scale;
-      sy += (float)ry / scale;
-      sz += (float)rz / scale;
+      sx += (float)rx / 14.375f;
+      sy += (float)ry / 14.375f;
+      sz += (float)rz / 14.375f;
     }
-    delay(20);
+    delay(10);
   }
   gx_offset = sx / 50.0f;
   gy_offset = sy / 50.0f;
@@ -102,11 +84,11 @@ void initSensors() {
 }
 
 void readSensors() {
-  // 1. Gia tốc ADXL345
+  // 1. Gia toc ADXL345
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
-  Wire.endTransmission(false);
-  if (Wire.requestFrom((uint8_t)ADXL345_ADDR, (size_t)6, (bool)true) >= 6) {
+  Wire.endTransmission(true);
+  if (Wire.requestFrom((int)ADXL345_ADDR, 6) == 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
     int16_t ry = Wire.read() | (Wire.read() << 8);
     int16_t rz = Wire.read() | (Wire.read() << 8);
@@ -116,25 +98,23 @@ void readSensors() {
   }
 
   // 2. Con quay Gyro
-  uint8_t reg = isMPU6050 ? 0x43 : 0x1D;
   Wire.beginTransmission(GYRO_ADDR);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  if (Wire.requestFrom((uint8_t)GYRO_ADDR, (size_t)6, (bool)true) >= 6) {
+  Wire.write(0x1D);
+  Wire.endTransmission(true);
+  if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
     int16_t rx = (Wire.read() << 8) | Wire.read();
     int16_t ry = (Wire.read() << 8) | Wire.read();
     int16_t rz = (Wire.read() << 8) | Wire.read();
-    float scale = isMPU6050 ? 131.0f : 14.375f;
-    gx = ((float)rx / scale) - gx_offset;
-    gy = ((float)ry / scale) - gy_offset;
-    gz = ((float)rz / scale) - gz_offset;
+    gx = ((float)rx / 14.375f) - gx_offset;
+    gy = ((float)ry / 14.375f) - gy_offset;
+    gz = ((float)rz / 14.375f) - gz_offset;
   }
 
-  // 3. Từ kế QMC5883L
+  // 3. Tu ke QMC5883L (0x0C)
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x00);
-  Wire.endTransmission(false);
-  if (Wire.requestFrom((uint8_t)QMC_MAG_ADDR, (size_t)6, (bool)true) >= 6) {
+  Wire.endTransmission(true);
+  if (Wire.requestFrom((int)QMC_MAG_ADDR, 6) == 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
     int16_t ry = Wire.read() | (Wire.read() << 8);
     int16_t rz = Wire.read() | (Wire.read() << 8);
@@ -174,6 +154,7 @@ void setup() {
 }
 
 unsigned long lastTime = 0;
+unsigned long lastPrint = 0;
 
 void loop() {
   unsigned long now = millis();
@@ -196,6 +177,12 @@ void loop() {
     if (deviceConnected && pCharacteristic != nullptr) {
       pCharacteristic->setValue((uint8_t*)packet, sizeof(packet));
       pCharacteristic->notify();
+    }
+
+    if (now - lastPrint >= 500) {
+      lastPrint = now;
+      Serial.printf("ACC[%.2f, %.2f, %.2f] | GYR[%.1f, %.1f, %.1f] | MAG[%.1f, %.1f, %.1f]\n",
+                    ax, ay, az, gx, gy, gz, mx, my, mz);
     }
   }
 }

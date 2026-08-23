@@ -10,7 +10,7 @@
 #define QMC_MAG_ADDR 0x0C
 
 #define SERVICE_UUID        "19b10000-e8f2-537e-4f6c-d104768a1214"
-#define CHARACTERISTIC_UUID "19b10001-e8f2-537e-4f6c-d104768a1214"
+#define CHARACTERISTIC_UUID "19b10002-e8f2-537e-4f6c-d104768a1214"
 
 NimBLEServer* pServer = nullptr;
 NimBLECharacteristic* pCharacteristic = nullptr;
@@ -41,7 +41,7 @@ uint8_t readReg(uint8_t addr, uint8_t reg) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)addr, (int)1);
+  Wire.requestFrom((uint8_t)addr, (size_t)1, (bool)true);
   if (Wire.available()) return Wire.read();
   return 0xFF;
 }
@@ -50,7 +50,7 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
   Wire.write(val);
-  Wire.endTransmission();
+  Wire.endTransmission(true);
 }
 
 void initSensors() {
@@ -72,7 +72,7 @@ void initSensors() {
   // 3. QMC5883L Magnetometer
   writeReg(QMC_MAG_ADDR, 0x0A, 0x80); // Reset
   delay(50);
-  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // Set/Reset Period
+  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // Set period
   delay(10);
   writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Continuous 200Hz, 8G, 512 OSR
   delay(20);
@@ -84,7 +84,7 @@ void initSensors() {
     Wire.beginTransmission(GYRO_ADDR);
     Wire.write(reg);
     Wire.endTransmission(false);
-    Wire.requestFrom((int)GYRO_ADDR, (int)6);
+    Wire.requestFrom((uint8_t)GYRO_ADDR, (size_t)6, (bool)true);
     if (Wire.available() >= 6) {
       int16_t rx = (Wire.read() << 8) | Wire.read();
       int16_t ry = (Wire.read() << 8) | Wire.read();
@@ -106,8 +106,7 @@ void readSensors() {
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)ADXL345_ADDR, (int)6);
-  if (Wire.available() >= 6) {
+  if (Wire.requestFrom((uint8_t)ADXL345_ADDR, (size_t)6, (bool)true) >= 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
     int16_t ry = Wire.read() | (Wire.read() << 8);
     int16_t rz = Wire.read() | (Wire.read() << 8);
@@ -121,8 +120,7 @@ void readSensors() {
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(reg);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)GYRO_ADDR, (int)6);
-  if (Wire.available() >= 6) {
+  if (Wire.requestFrom((uint8_t)GYRO_ADDR, (size_t)6, (bool)true) >= 6) {
     int16_t rx = (Wire.read() << 8) | Wire.read();
     int16_t ry = (Wire.read() << 8) | Wire.read();
     int16_t rz = (Wire.read() << 8) | Wire.read();
@@ -136,16 +134,13 @@ void readSensors() {
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x00);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)QMC_MAG_ADDR, (int)6);
-  if (Wire.available() >= 6) {
+  if (Wire.requestFrom((uint8_t)QMC_MAG_ADDR, (size_t)6, (bool)true) >= 6) {
     int16_t rx = Wire.read() | (Wire.read() << 8);
     int16_t ry = Wire.read() | (Wire.read() << 8);
     int16_t rz = Wire.read() | (Wire.read() << 8);
-    if (rx != 0 || ry != 0 || rz != 0) {
-      mx = (float)rx / 30.0f; // uT
-      my = (float)ry / 30.0f;
-      mz = (float)rz / 30.0f;
-    }
+    mx = (float)rx / 30.0f; // uT
+    my = (float)ry / 30.0f;
+    mz = (float)rz / 30.0f;
   }
 }
 

@@ -74,7 +74,7 @@
   .act-selected{font-family:monospace;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;background:rgba(59,130,246,.15);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
   .act-group-lbl{font-size:10px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px}
   .act-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-  .act-grid.warn-grid{grid-template-columns:repeat(3,1fr)}
+  .act-grid.warn-grid{grid-template-columns:repeat(2,1fr)}
   .act-btn{
     padding:9px 4px;border-radius:10px;border:1px solid var(--border);
     background:rgba(255,255,255,.03);color:var(--sub);font-size:12px;font-weight:600;
@@ -213,8 +213,7 @@
   <div class="act-group-lbl" style="margin-top:10px">Sự cố / Bất thường</div>
   <div class="act-grid warn-grid">
     <button class="act-btn warn" onclick="selectActivity('Ngã', 'fall', this)">Ngã</button>
-    <button class="act-btn warn" onclick="selectActivity('Thở nhanh (Thở dốc)', 'tachypnea', this)">Thở nhanh</button>
-    <button class="act-btn warn" onclick="selectActivity('Thở chậm (Ngưng thở)', 'bradypnea', this)">Thở chậm</button>
+    <button class="act-btn warn" onclick="selectActivity('Khó thở', 'dyspnea', this)">Khó thở</button>
   </div>
 </div>
 

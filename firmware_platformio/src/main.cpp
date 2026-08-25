@@ -24,15 +24,16 @@ float gx = 0.0f, gy = 0.0f, gz = 0.0f;
 float mx = 0.0f, my = 0.0f, mz = 0.0f;
 
 float gx_offset = 0.0f, gy_offset = 0.0f, gz_offset = 0.0f;
+bool adxl_ok = false, gyro_ok = false, mag_ok = false;
 
 class ServerCallbacks: public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer) {
         deviceConnected = true;
-        Serial.println("[BLE] Device Connected!");
+        Serial.println("[BLE] Client Connected!");
     };
     void onDisconnect(NimBLEServer* pServer) {
         deviceConnected = false;
-        Serial.println("[BLE] Device Disconnected, restarting advertising...");
+        Serial.println("[BLE] Client Disconnected, restarting advertising...");
         NimBLEDevice::startAdvertising();
     }
 };
@@ -45,49 +46,47 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 void initSensors() {
-  // 1. ADXL345 (Gia toc)
-  writeReg(ADXL345_ADDR, 0x2D, 0x08);
-  writeReg(ADXL345_ADDR, 0x31, 0x08);
+  Serial.println("[INIT] Dang kiem tra va khoi tao cac cam bien...");
 
-  // 2. Gyroscope (ITG3200 / MPU)
-  writeReg(GYRO_ADDR, 0x6B, 0x00);
-  writeReg(GYRO_ADDR, 0x3E, 0x00);
-  writeReg(GYRO_ADDR, 0x16, 0x18);
-  writeReg(GYRO_ADDR, 0x6A, 0x00);
-  writeReg(GYRO_ADDR, 0x37, 0x02);
-
-  // 3. QMC5883L Magnetometer
-  writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // SET/RESET Period
-  writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Config continuous mode
-
-  // Calib gyro tinh 30 mau
-  float sx = 0, sy = 0, sz = 0;
-  int validCount = 0;
-  for (int i = 0; i < 30; i++) {
-    Wire.beginTransmission(GYRO_ADDR);
-    Wire.write(0x1D);
-    if (Wire.endTransmission(true) == 0) {
-      if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
-        int16_t rx = (Wire.read() << 8) | Wire.read();
-        int16_t ry = (Wire.read() << 8) | Wire.read();
-        int16_t rz = (Wire.read() << 8) | Wire.read();
-        sx += (float)rx / 14.375f;
-        sy += (float)ry / 14.375f;
-        sz += (float)rz / 14.375f;
-        validCount++;
-      }
-    }
-    delay(5);
+  // 1. ADXL345
+  Wire.beginTransmission(ADXL345_ADDR);
+  if (Wire.endTransmission(true) == 0) {
+    writeReg(ADXL345_ADDR, 0x2D, 0x08);
+    writeReg(ADXL345_ADDR, 0x31, 0x08);
+    adxl_ok = true;
+    Serial.println("  [+] ADXL345 (Gia toc) OK (0x53)");
+  } else {
+    Serial.println("  [-] ADXL345 khong phan hoi");
   }
-  if (validCount > 0) {
-    gx_offset = sx / (float)validCount;
-    gy_offset = sy / (float)validCount;
-    gz_offset = sz / (float)validCount;
+
+  // 2. Gyroscope ITG3200
+  Wire.beginTransmission(GYRO_ADDR);
+  if (Wire.endTransmission(true) == 0) {
+    writeReg(GYRO_ADDR, 0x6B, 0x00);
+    writeReg(GYRO_ADDR, 0x3E, 0x00);
+    writeReg(GYRO_ADDR, 0x16, 0x18);
+    writeReg(GYRO_ADDR, 0x6A, 0x00);
+    writeReg(GYRO_ADDR, 0x37, 0x02);
+    gyro_ok = true;
+    Serial.println("  [+] ITG3200 (Con quay) OK (0x68)");
+  } else {
+    Serial.println("  [-] ITG3200 khong phan hoi");
+  }
+
+  // 3. QMC5883L
+  Wire.beginTransmission(QMC_MAG_ADDR);
+  if (Wire.endTransmission(true) == 0) {
+    writeReg(QMC_MAG_ADDR, 0x0B, 0x01);
+    writeReg(QMC_MAG_ADDR, 0x09, 0x1D);
+    mag_ok = true;
+    Serial.println("  [+] QMC5883L (Tu ke) OK (0x0C)");
+  } else {
+    Serial.println("  [-] QMC5883L khong phan hoi");
   }
 }
 
 void readSensors() {
-  // 1. Gia toc ADXL345
+  // 1. Gia toc
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
   if (Wire.endTransmission(true) == 0) {
@@ -101,7 +100,7 @@ void readSensors() {
     }
   }
 
-  // 2. Con quay Gyro (ITG3200)
+  // 2. Con quay
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(0x1D);
   if (Wire.endTransmission(true) == 0) {
@@ -115,10 +114,10 @@ void readSensors() {
     }
   }
 
-  // 3. Tu ke QMC5883L (0x0C) - Active sampling cycle
+  // 3. Tu ke
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x0A);
-  Wire.write(0x01); // Trigger new measurement
+  Wire.write(0x01);
   Wire.endTransmission(true);
 
   Wire.beginTransmission(QMC_MAG_ADDR);
@@ -128,7 +127,7 @@ void readSensors() {
       int16_t rx = Wire.read() | (Wire.read() << 8);
       int16_t ry = Wire.read() | (Wire.read() << 8);
       int16_t rz = Wire.read() | (Wire.read() << 8);
-      mx = (float)rx / 30.0f; // uT
+      mx = (float)rx / 30.0f;
       my = (float)ry / 30.0f;
       mz = (float)rz / 30.0f;
     }
@@ -137,15 +136,17 @@ void readSensors() {
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
-  Serial.println("\n[INIT] Starting 9DOF BLE ESP32...");
+  delay(1000);
+  Serial.println("\n==========================================");
+  Serial.println(">>> ESP32-S3 9DOF BLE STREAMING 50Hz <<<");
+  Serial.println("==========================================");
 
   Wire.begin(SDA_PIN, SCL_PIN, 100000);
-  Wire.setTimeOut(10); // Non-blocking I2C protection
+  Wire.setTimeOut(10);
   initSensors();
 
   NimBLEDevice::init("ESP32_IMU");
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  NimBLEDevice::setPower(ESP_PWR_LVL_P3);
 
   pServer = NimBLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
@@ -165,16 +166,18 @@ void setup() {
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
 
-  Serial.println("[BLE] Advertising started as ESP32_IMU! Ready to connect.");
+  Serial.println("[BLE] Dang phat song Bluetooth ten la 'ESP32_IMU' - SAN SANG KET NOI!");
 }
 
 unsigned long lastTime = 0;
 unsigned long lastPrint = 0;
+uint32_t sampleCount = 0;
 
 void loop() {
   unsigned long now = millis();
   if (now - lastTime >= 20) { // 50 Hz
     lastTime = now;
+    sampleCount++;
 
     readSensors();
 
@@ -194,10 +197,11 @@ void loop() {
       pCharacteristic->notify();
     }
 
-    if (now - lastPrint >= 500) {
+    if (now - lastPrint >= 1000) {
       lastPrint = now;
-      Serial.printf("ACC[%.2f, %.2f, %.2f] | GYR[%.1f, %.1f, %.1f] | MAG[%.1f, %.1f, %.1f]\n",
-                    ax, ay, az, gx, gy, gz, mx, my, mz);
+      Serial.printf("[50Hz STREAM] ACC[%.2f, %.2f, %.2f] | GYR[%.1f, %.1f, %.1f] | MAG[%.1f, %.1f, %.1f] | BLE: %s\n",
+                    ax, ay, az, gx, gy, gz, mx, my, mz,
+                    deviceConnected ? "DA KET NOI" : "DANG CHO KET NOI");
     }
   }
 }

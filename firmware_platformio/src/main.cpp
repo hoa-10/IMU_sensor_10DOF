@@ -28,9 +28,11 @@ float gx_offset = 0.0f, gy_offset = 0.0f, gz_offset = 0.0f;
 class ServerCallbacks: public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer) {
         deviceConnected = true;
+        Serial.println("[BLE] Device Connected!");
     };
     void onDisconnect(NimBLEServer* pServer) {
         deviceConnected = false;
+        Serial.println("[BLE] Device Disconnected, restarting advertising...");
         NimBLEDevice::startAdvertising();
     }
 };
@@ -58,52 +60,59 @@ void initSensors() {
   writeReg(QMC_MAG_ADDR, 0x0B, 0x01); // SET/RESET Period
   writeReg(QMC_MAG_ADDR, 0x09, 0x1D); // Config continuous mode
 
-  // Calib gyro tinh 50 mau
+  // Calib gyro tinh 30 mau
   float sx = 0, sy = 0, sz = 0;
-  for (int i = 0; i < 50; i++) {
+  int validCount = 0;
+  for (int i = 0; i < 30; i++) {
     Wire.beginTransmission(GYRO_ADDR);
     Wire.write(0x1D);
-    Wire.endTransmission(true);
-    if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
-      int16_t rx = (Wire.read() << 8) | Wire.read();
-      int16_t ry = (Wire.read() << 8) | Wire.read();
-      int16_t rz = (Wire.read() << 8) | Wire.read();
-      sx += (float)rx / 14.375f;
-      sy += (float)ry / 14.375f;
-      sz += (float)rz / 14.375f;
+    if (Wire.endTransmission(true) == 0) {
+      if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
+        int16_t rx = (Wire.read() << 8) | Wire.read();
+        int16_t ry = (Wire.read() << 8) | Wire.read();
+        int16_t rz = (Wire.read() << 8) | Wire.read();
+        sx += (float)rx / 14.375f;
+        sy += (float)ry / 14.375f;
+        sz += (float)rz / 14.375f;
+        validCount++;
+      }
     }
-    delay(10);
+    delay(5);
   }
-  gx_offset = sx / 50.0f;
-  gy_offset = sy / 50.0f;
-  gz_offset = sz / 50.0f;
+  if (validCount > 0) {
+    gx_offset = sx / (float)validCount;
+    gy_offset = sy / (float)validCount;
+    gz_offset = sz / (float)validCount;
+  }
 }
 
 void readSensors() {
   // 1. Gia toc ADXL345
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
-  Wire.endTransmission(true);
-  if (Wire.requestFrom((int)ADXL345_ADDR, 6) == 6) {
-    int16_t rx = Wire.read() | (Wire.read() << 8);
-    int16_t ry = Wire.read() | (Wire.read() << 8);
-    int16_t rz = Wire.read() | (Wire.read() << 8);
-    ax = (float)rx * 0.0039f;
-    ay = (float)ry * 0.0039f;
-    az = (float)rz * 0.0039f;
+  if (Wire.endTransmission(true) == 0) {
+    if (Wire.requestFrom((int)ADXL345_ADDR, 6) == 6) {
+      int16_t rx = Wire.read() | (Wire.read() << 8);
+      int16_t ry = Wire.read() | (Wire.read() << 8);
+      int16_t rz = Wire.read() | (Wire.read() << 8);
+      ax = (float)rx * 0.0039f;
+      ay = (float)ry * 0.0039f;
+      az = (float)rz * 0.0039f;
+    }
   }
 
   // 2. Con quay Gyro (ITG3200)
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(0x1D);
-  Wire.endTransmission(true);
-  if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
-    int16_t rx = (Wire.read() << 8) | Wire.read();
-    int16_t ry = (Wire.read() << 8) | Wire.read();
-    int16_t rz = (Wire.read() << 8) | Wire.read();
-    gx = ((float)rx / 14.375f) - gx_offset;
-    gy = ((float)ry / 14.375f) - gy_offset;
-    gz = ((float)rz / 14.375f) - gz_offset;
+  if (Wire.endTransmission(true) == 0) {
+    if (Wire.requestFrom((int)GYRO_ADDR, 6) == 6) {
+      int16_t rx = (Wire.read() << 8) | Wire.read();
+      int16_t ry = (Wire.read() << 8) | Wire.read();
+      int16_t rz = (Wire.read() << 8) | Wire.read();
+      gx = ((float)rx / 14.375f) - gx_offset;
+      gy = ((float)ry / 14.375f) - gy_offset;
+      gz = ((float)rz / 14.375f) - gz_offset;
+    }
   }
 
   // 3. Tu ke QMC5883L (0x0C) - Active sampling cycle
@@ -114,22 +123,25 @@ void readSensors() {
 
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x00);
-  Wire.endTransmission(true);
-  if (Wire.requestFrom((int)QMC_MAG_ADDR, 6) == 6) {
-    int16_t rx = Wire.read() | (Wire.read() << 8);
-    int16_t ry = Wire.read() | (Wire.read() << 8);
-    int16_t rz = Wire.read() | (Wire.read() << 8);
-    mx = (float)rx / 30.0f; // uT
-    my = (float)ry / 30.0f;
-    mz = (float)rz / 30.0f;
+  if (Wire.endTransmission(true) == 0) {
+    if (Wire.requestFrom((int)QMC_MAG_ADDR, 6) == 6) {
+      int16_t rx = Wire.read() | (Wire.read() << 8);
+      int16_t ry = Wire.read() | (Wire.read() << 8);
+      int16_t rz = Wire.read() | (Wire.read() << 8);
+      mx = (float)rx / 30.0f; // uT
+      my = (float)ry / 30.0f;
+      mz = (float)rz / 30.0f;
+    }
   }
 }
 
 void setup() {
   Serial.begin(115200);
   delay(500);
+  Serial.println("\n[INIT] Starting 9DOF BLE ESP32...");
 
   Wire.begin(SDA_PIN, SCL_PIN, 100000);
+  Wire.setTimeOut(10); // Non-blocking I2C protection
   initSensors();
 
   NimBLEDevice::init("ESP32_IMU");
@@ -152,6 +164,8 @@ void setup() {
   pAdvertising->setName("ESP32_IMU");
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
+
+  Serial.println("[BLE] Advertising started as ESP32_IMU! Ready to connect.");
 }
 
 unsigned long lastTime = 0;

@@ -16,7 +16,7 @@ NimBLEServer* pServer = nullptr;
 NimBLECharacteristic* pCharacteristic = nullptr;
 bool deviceConnected = false;
 
-// 18 bytes = 9 x int16
+// 18 bytes = 9 x int16 Little-Endian
 int16_t packet[9] = {0};
 
 float ax = 0.0f, ay = 0.0f, az = 0.0f;
@@ -24,7 +24,6 @@ float gx = 0.0f, gy = 0.0f, gz = 0.0f;
 float mx = 0.0f, my = 0.0f, mz = 0.0f;
 
 float gx_offset = 0.0f, gy_offset = 0.0f, gz_offset = 0.0f;
-bool adxl_ok = false, gyro_ok = false, mag_ok = false;
 
 class ServerCallbacks: public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer) {
@@ -46,17 +45,14 @@ void writeReg(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 void initSensors() {
-  Serial.println("[INIT] Dang kiem tra va khoi tao cac cam bien...");
+  Serial.println("[INIT] Khoi tao module 10DOF tren GPIO 3 (SDA) & GPIO 4 (SCL)...");
 
-  // 1. ADXL345
+  // 1. ADXL345 (Gia toc)
   Wire.beginTransmission(ADXL345_ADDR);
   if (Wire.endTransmission(true) == 0) {
     writeReg(ADXL345_ADDR, 0x2D, 0x08);
     writeReg(ADXL345_ADDR, 0x31, 0x08);
-    adxl_ok = true;
-    Serial.println("  [+] ADXL345 (Gia toc) OK (0x53)");
-  } else {
-    Serial.println("  [-] ADXL345 khong phan hoi");
+    Serial.println("  [+] ADXL345 OK (0x53)");
   }
 
   // 2. Gyroscope ITG3200
@@ -67,26 +63,20 @@ void initSensors() {
     writeReg(GYRO_ADDR, 0x16, 0x18);
     writeReg(GYRO_ADDR, 0x6A, 0x00);
     writeReg(GYRO_ADDR, 0x37, 0x02);
-    gyro_ok = true;
-    Serial.println("  [+] ITG3200 (Con quay) OK (0x68)");
-  } else {
-    Serial.println("  [-] ITG3200 khong phan hoi");
+    Serial.println("  [+] ITG3200 OK (0x68)");
   }
 
-  // 3. QMC5883L
+  // 3. QMC5883L (Tu ke)
   Wire.beginTransmission(QMC_MAG_ADDR);
   if (Wire.endTransmission(true) == 0) {
     writeReg(QMC_MAG_ADDR, 0x0B, 0x01);
     writeReg(QMC_MAG_ADDR, 0x09, 0x1D);
-    mag_ok = true;
-    Serial.println("  [+] QMC5883L (Tu ke) OK (0x0C)");
-  } else {
-    Serial.println("  [-] QMC5883L khong phan hoi");
+    Serial.println("  [+] QMC5883L OK (0x0C)");
   }
 }
 
 void readSensors() {
-  // 1. Gia toc
+  // 1. Gia toc ADXL345
   Wire.beginTransmission(ADXL345_ADDR);
   Wire.write(0x32);
   if (Wire.endTransmission(true) == 0) {
@@ -100,7 +90,7 @@ void readSensors() {
     }
   }
 
-  // 2. Con quay
+  // 2. Con quay Gyro ITG3200
   Wire.beginTransmission(GYRO_ADDR);
   Wire.write(0x1D);
   if (Wire.endTransmission(true) == 0) {
@@ -114,7 +104,7 @@ void readSensors() {
     }
   }
 
-  // 3. Tu ke
+  // 3. Tu ke QMC5883L
   Wire.beginTransmission(QMC_MAG_ADDR);
   Wire.write(0x0A);
   Wire.write(0x01);
@@ -137,9 +127,7 @@ void readSensors() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n==========================================");
-  Serial.println(">>> ESP32-S3 9DOF BLE STREAMING 50Hz <<<");
-  Serial.println("==========================================");
+  Serial.println("\n[SYSTEM] Khoi dong ESP32-S3 9DOF BLE 50Hz...");
 
   Wire.begin(SDA_PIN, SCL_PIN, 100000);
   Wire.setTimeOut(10);
@@ -166,18 +154,16 @@ void setup() {
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
 
-  Serial.println("[BLE] Dang phat song Bluetooth ten la 'ESP32_IMU' - SAN SANG KET NOI!");
+  Serial.println("[BLE] Dang phat song Bluetooth 'ESP32_IMU' - SAN SANG!");
 }
 
 unsigned long lastTime = 0;
 unsigned long lastPrint = 0;
-uint32_t sampleCount = 0;
 
 void loop() {
   unsigned long now = millis();
   if (now - lastTime >= 20) { // 50 Hz
     lastTime = now;
-    sampleCount++;
 
     readSensors();
 
@@ -197,11 +183,11 @@ void loop() {
       pCharacteristic->notify();
     }
 
-    if (now - lastPrint >= 1000) {
+    if (now - lastPrint >= 500) {
       lastPrint = now;
-      Serial.printf("[50Hz STREAM] ACC[%.2f, %.2f, %.2f] | GYR[%.1f, %.1f, %.1f] | MAG[%.1f, %.1f, %.1f] | BLE: %s\n",
+      Serial.printf("ACC[%.2f, %.2f, %.2f] | GYR[%.1f, %.1f, %.1f] | MAG[%.1f, %.1f, %.1f] | BLE: %s\n",
                     ax, ay, az, gx, gy, gz, mx, my, mz,
-                    deviceConnected ? "DA KET NOI" : "DANG CHO KET NOI");
+                    deviceConnected ? "DA KET NOI (50Hz)" : "DANG CHO KET NOI");
     }
   }
 }

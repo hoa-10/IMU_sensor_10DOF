@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0a0e17">
-<title>ESP32 9DOF IMU & MAG Tracker</title>
+<title>ESP32 9DOF IMU & Pulse Tracker</title>
 <style>
   :root {
     --bg:#0a0e17; --card:rgba(17,22,35,.92); --border:rgba(255,255,255,.06);
@@ -15,6 +15,7 @@
     --ax:#38bdf8; --ay:#34d399; --az:#fb7185;
     --gx:#fb923c; --gy:#a78bfa; --gz:#fbbf24;
     --mx:#e879f9; --my:#818cf8; --mz:#2dd4bf;
+    --pulse:#f43f5e; --ibi:#fbbf24;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   body{
@@ -85,7 +86,7 @@
   .act-btn.warn.active{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border-color:transparent;box-shadow:0 2px 10px rgba(239,68,68,.35);font-weight:700}
 
   /* Live Data Tabs */
-  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
   .tab{
     padding:10px 4px;border-radius:12px;text-align:center;
     font-size:12px;font-weight:700;cursor:pointer;
@@ -105,6 +106,28 @@
   .val-card.x .val-label{color:var(--ax)} .val-card.y .val-label{color:var(--ay)} .val-card.z .val-label{color:var(--az)}
   .val-card.gx .val-label{color:var(--gx)} .val-card.gy .val-label{color:var(--gy)} .val-card.gz .val-label{color:var(--gz)}
   .val-card.mx .val-label{color:var(--mx)} .val-card.my .val-label{color:var(--my)} .val-card.mz .val-label{color:var(--mz)}
+  .val-card.bpm .val-label{color:var(--pulse)} .val-card.ibi .val-label{color:var(--ibi)}
+  .val-card.bpm .val-num{font-size:26px}
+
+  /* SOTA Heart Rate Result */
+  .sota-card{
+    background:var(--card);border:1px solid rgba(251,113,133,.25);
+    border-radius:16px;padding:14px 16px;margin-bottom:12px;
+  }
+  .sota-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .sota-title{font-size:13px;font-weight:700;color:#fda4af}
+  .sota-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase}
+  .sota-badge.high{background:rgba(34,197,94,.15);color:var(--green)}
+  .sota-badge.medium{background:rgba(245,158,11,.15);color:var(--amber)}
+  .sota-badge.low{background:rgba(239,68,68,.15);color:var(--red)}
+  .sota-badge.wait{background:rgba(255,255,255,.08);color:var(--dim)}
+  .sota-main{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+  .sota-main .num{font-family:monospace;font-size:34px;font-weight:800;color:#fda4af}
+  .sota-main .unit{font-size:13px;color:var(--sub)}
+  .sota-sub{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .sota-sub div{background:rgba(255,255,255,.03);border-radius:10px;padding:6px;text-align:center}
+  .sota-sub .sl{font-size:9px;color:var(--dim);text-transform:uppercase}
+  .sota-sub .sv{font-family:monospace;font-size:13px;font-weight:700;color:#e2e8f0}
 
   /* Chart */
   .chart-wrap{
@@ -179,7 +202,7 @@
 
 <!-- Top Bar -->
 <div class="topbar">
-  <h1>⚡ 9DOF IMU & MAG Tracker</h1>
+  <h1>⚡ 9DOF IMU & ❤️ Pulse Tracker</h1>
   <div class="pill" id="hzPill">0 Hz</div>
 </div>
 
@@ -222,6 +245,7 @@
   <div class="tab active" id="tabAcc" onclick="setTab('acc')">Gia Tốc</div>
   <div class="tab" id="tabGyr" onclick="setTab('gyr')">Con Quay</div>
   <div class="tab" id="tabMag" onclick="setTab('mag')">Từ Kế</div>
+  <div class="tab" id="tabPulse" onclick="setTab('pulse')">❤️ Nhịp Tim</div>
 </div>
 
 <!-- 1. Accelerometer Panel -->
@@ -266,6 +290,37 @@
   </div>
 </div>
 
+<!-- 4. Pulse Sensor Panel -->
+<div id="panelPulse" style="display:none">
+  <div class="vals" style="grid-template-columns:1fr 1fr">
+    <div class="val-card bpm"><div class="val-label">BPM (Live)</div><div class="val-num" id="quickBpm">--</div></div>
+    <div class="val-card ibi"><div class="val-label">IBI (ms)</div><div class="val-num" id="ibi">--</div></div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-head"><span>Sóng PPG thô (Pulse Sensor)</span><span id="pulseRawVal">ADC: 0</span></div>
+    <canvas id="cP" width="380" height="120"></canvas>
+  </div>
+
+  <!-- Ket qua nhip tim chinh thuc, tinh boi thuat toan SOTA ngay tren ESP32
+       (Bandpass Butterworth + Elgendi Peak + FFT Spectral + hop nhat da mien)
+       - chi co sau khi bam "Dừng" va ESP32 xu ly xong toan bo doan da ghi -->
+  <div class="sota-card">
+    <div class="sota-head">
+      <div class="sota-title">💯 Nhịp tim SOTA (ESP32 tự tính khi Dừng)</div>
+      <span class="sota-badge wait" id="sotaBadge">Chưa có</span>
+    </div>
+    <div class="sota-main">
+      <span class="num" id="sotaFused">--</span>
+      <span class="unit">BPM</span>
+    </div>
+    <div class="sota-sub">
+      <div><div class="sl">Bắt đỉnh</div><div class="sv" id="sotaTime">--</div></div>
+      <div><div class="sl">Phổ tần số</div><div class="sv" id="sotaSpectral">--</div></div>
+      <div><div class="sl">RMSSD</div><div class="sv" id="sotaRmssd">--</div></div>
+    </div>
+  </div>
+</div>
+
 <!-- Record Panel -->
 <div class="rec-card" id="recCard">
   <div class="rec-top">
@@ -290,11 +345,11 @@
   <div class="modal-backdrop" onclick="closeExportModal()"></div>
   <div class="modal-dialog">
     <div class="modal-head">
-      <div style="font-weight:800;font-size:16px">💾 Xuất Dataset 9DOF (<span id="modalSamples">0</span> mẫu)</div>
+      <div style="font-weight:800;font-size:16px">💾 Xuất Dataset 9DOF + Pulse (<span id="modalSamples">0</span> mẫu)</div>
       <button class="modal-close-btn" onclick="closeExportModal()">✕</button>
     </div>
     <div class="modal-content-inner">
-      <p style="font-size:12px;color:var(--sub);margin-bottom:12px">File CSV đầy đủ 9 trục thông số + nhãn hành vi:</p>
+      <p style="font-size:12px;color:var(--sub);margin-bottom:12px">File CSV đầy đủ 9 trục IMU + sóng PPG thô + nhãn hành vi (kèm dòng tóm tắt nhịp tim SOTA ở đầu file):</p>
 
       <button class="modal-action-btn share" onclick="actionShare()">
         <span class="m-icon">📤</span>
@@ -334,13 +389,18 @@
 <script>
 const SVC = "19b10000-e8f2-537e-4f6c-d104768a1214";
 const CHR = "19b10002-e8f2-537e-4f6c-d104768a1214";
+const SOTA_CHR = "19b10003-e8f2-537e-4f6c-d104768a1214";
 
 const $ = id => document.getElementById(id);
 const N = 120;
-let dev = null, aH = [], gH = [], mH = [], pc = 0, lt = performance.now();
+let dev = null, aH = [], gH = [], mH = [], pH = [], pc = 0, lt = performance.now();
 let rec = false, csv = [], recStart = 0, rCnt = 0;
 let curTab = 'acc';
 let curActivityName = 'Đi bộ', curActivityKey = 'walking';
+let sotaChar = null;
+let lastPulseRaw = 0, lastQuickBpm = 0, lastIbi = 0;
+const CONF_LABEL = { '-1': 'Chưa có', '0': 'Thấp', '1': 'Trung bình', '2': 'Cao' };
+const CONF_CLASS = { '-1': 'wait', '0': 'low', '1': 'medium', '2': 'high' };
 
 function selectActivity(name, key, btn){
   curActivityName = name;
@@ -356,10 +416,12 @@ function setTab(t){
   $('panelAcc').style.display = t === 'acc' ? 'block' : 'none';
   $('panelGyr').style.display = t === 'gyr' ? 'block' : 'none';
   $('panelMag').style.display = t === 'mag' ? 'block' : 'none';
+  $('panelPulse').style.display = t === 'pulse' ? 'block' : 'none';
 
   $('tabAcc').className = 'tab' + (t === 'acc' ? ' active' : '');
   $('tabGyr').className = 'tab' + (t === 'gyr' ? ' active' : '');
   $('tabMag').className = 'tab' + (t === 'mag' ? ' active' : '');
+  $('tabPulse').className = 'tab' + (t === 'pulse' ? ' active' : '');
 }
 
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -418,6 +480,16 @@ async function doConnect(retries = 3){
       await ch.startNotifications();
       ch.addEventListener('characteristicvaluechanged', onData);
 
+      await sleep(200);
+      try {
+        sotaChar = await svc.getCharacteristic(SOTA_CHR);
+        await sotaChar.startNotifications();
+        sotaChar.addEventListener('characteristicvaluechanged', onSotaResult);
+      } catch (sotaErr) {
+        console.warn('Không tìm thấy characteristic SOTA (firmware cũ?)', sotaErr);
+        sotaChar = null;
+      }
+
       $('bleIcon').className = 'ble-icon on';
       $('bleIcon').textContent = '📶';
       $('bleName').textContent = dev.name || 'ESP32 9DOF IMU';
@@ -472,6 +544,21 @@ function onData(e){
     mz = d.getInt16(16, true) / 10.0;
   }
 
+  // 4. Pulse Sensor (raw ADC + BPM ước tính nhanh live + IBI)
+  let pulseRaw = 0, quickBpm = 0, ibi = 0;
+  if(d.byteLength >= 24){
+    pulseRaw = d.getInt16(18, true);
+    quickBpm = d.getInt16(20, true);
+    ibi = d.getInt16(22, true);
+    lastPulseRaw = pulseRaw; lastQuickBpm = quickBpm; lastIbi = ibi;
+
+    $('quickBpm').textContent = quickBpm > 0 ? quickBpm : '--';
+    $('ibi').textContent = ibi;
+    $('pulseRawVal').textContent = `ADC: ${pulseRaw}`;
+
+    pH.push(pulseRaw); if(pH.length > N) pH.shift();
+  }
+
   // Cập nhật text giao diện
   $('ax').textContent = ax.toFixed(2);
   $('ay').textContent = ay.toFixed(2);
@@ -499,15 +586,50 @@ function onData(e){
 
   // Ghi Dataset
   if(rec){
-    const row = `${performance.now().toFixed(1)},${ax.toFixed(4)},${ay.toFixed(4)},${az.toFixed(4)},${gx.toFixed(2)},${gy.toFixed(2)},${gz.toFixed(2)},${mx.toFixed(2)},${my.toFixed(2)},${mz.toFixed(2)},${curActivityKey}`;
+    const row = `${performance.now().toFixed(1)},${ax.toFixed(4)},${ay.toFixed(4)},${az.toFixed(4)},${gx.toFixed(2)},${gy.toFixed(2)},${gz.toFixed(2)},${mx.toFixed(2)},${my.toFixed(2)},${mz.toFixed(2)},${pulseRaw},${curActivityKey}`;
     csv.push(row);
     rCnt++;
   }
 }
 
+// Ket qua nhip tim SOTA tu ESP32 (8 x int16 = 16 byte), gui ve sau khi bam
+// Dung va ESP32 xu ly xong toan bo doan da ghi (bandpass + Elgendi + FFT + fusion)
+function onSotaResult(e){
+  const d = e.target.value;
+  if(d.byteLength < 16) return;
+
+  const fusedBpm = d.getInt16(0, true) / 10.0;
+  const timeBpm = d.getInt16(2, true) / 10.0;
+  const spectralBpm = d.getInt16(4, true) / 10.0;
+  const ibiMedian = d.getInt16(6, true);
+  const rmssd = d.getInt16(8, true);
+  const confidence = d.getInt16(10, true);
+  const peakCount = d.getInt16(12, true);
+  const fsUsed = d.getInt16(14, true) / 10.0;
+
+  if(confidence === -1){
+    $('sotaBadge').textContent = 'Không đủ dữ liệu';
+    $('sotaBadge').className = 'sota-badge wait';
+    $('sotaFused').textContent = '--';
+    $('sotaTime').textContent = '--';
+    $('sotaSpectral').textContent = '--';
+    $('sotaRmssd').textContent = '--';
+    return;
+  }
+
+  $('sotaFused').textContent = fusedBpm.toFixed(1);
+  $('sotaTime').textContent = timeBpm > 0 ? `${timeBpm.toFixed(1)} bpm` : '--';
+  $('sotaSpectral').textContent = `${spectralBpm.toFixed(1)} bpm`;
+  $('sotaRmssd').textContent = `${rmssd} ms`;
+  $('sotaBadge').textContent = CONF_LABEL[confidence] ?? '--';
+  $('sotaBadge').className = 'sota-badge ' + (CONF_CLASS[confidence] ?? 'wait');
+
+  console.log(`[SOTA] fused=${fusedBpm} time=${timeBpm} spectral=${spectralBpm} ibi=${ibiMedian}ms rmssd=${rmssd}ms peaks=${peakCount} fs=${fsUsed}Hz`);
+}
+
 // Render Loops
-const cA = $('cA').getContext('2d'), cG = $('cG').getContext('2d'), cM = $('cM').getContext('2d');
-const cAc = $('cA'), cGc = $('cG'), cMc = $('cM');
+const cA = $('cA').getContext('2d'), cG = $('cG').getContext('2d'), cM = $('cM').getContext('2d'), cP = $('cP').getContext('2d');
+const cAc = $('cA'), cGc = $('cG'), cMc = $('cM'), cPc = $('cP');
 
 function render(){
   requestAnimationFrame(render);
@@ -524,6 +646,30 @@ function render(){
   if(curTab === 'acc') draw(cA, cAc, aH, 2, ['#38bdf8', '#34d399', '#fb7185']);
   else if(curTab === 'gyr') draw(cG, cGc, gH, 250, ['#fb923c', '#a78bfa', '#fbbf24']);
   else if(curTab === 'mag') draw(cM, cMc, mH, 50, ['#e879f9', '#818cf8', '#2dd4bf']);
+  else if(curTab === 'pulse') drawPulse(cP, cPc, pH);
+}
+
+// Ve song PPG don kenh, tu dong scale bien do theo min/max trong buffer
+// (bien do AC cua Pulse Sensor rat nho so voi baseline DC nen phai auto-scale)
+function drawPulse(ctx, cv, h){
+  const w = cv.width, hh = cv.height;
+  ctx.clearRect(0, 0, w, hh);
+  if(h.length < 2) return;
+  let min = Math.min(...h), max = Math.max(...h);
+  if(max - min < 10){ const mid = (max + min) / 2; min = mid - 5; max = mid + 5; }
+  const pad = (max - min) * 0.15;
+  min -= pad; max += pad;
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#fb7185';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  h.forEach((v, i) => {
+    const x = i / (N - 1) * w;
+    const y = hh - ((v - min) / (max - min)) * hh;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
 }
 
 function draw(ctx, cv, h, s, c){
@@ -549,6 +695,17 @@ function draw(ctx, cv, h, s, c){
   }
 }
 
+// Ghi 1 byte lenh xuong ESP32 qua characteristic SOTA: 1 = bat dau dem PPG,
+// 0 = dung dem va yeu cau ESP32 chay thuat toan SOTA tren toan bo doan da ghi
+async function sendSotaCommand(cmd){
+  if(!sotaChar) return;
+  try {
+    await sotaChar.writeValue(new Uint8Array([cmd]));
+  } catch(err){
+    console.warn('Không gửi được lệnh SOTA tới ESP32', err);
+  }
+}
+
 // Record Controls
 function startRec(){
   rec = true;
@@ -564,6 +721,15 @@ function startRec(){
   $('rCnt').textContent = '0';
   $('rTime').textContent = '00:00';
   $('rHz').textContent = '0';
+
+  // Bao ESP32 bat dau dem du lieu PPG thô cho lan phan tich SOTA sap toi
+  sendSotaCommand(1);
+  $('sotaBadge').textContent = 'Đang ghi...';
+  $('sotaBadge').className = 'sota-badge wait';
+  $('sotaFused').textContent = '--';
+  $('sotaTime').textContent = '--';
+  $('sotaSpectral').textContent = '--';
+  $('sotaRmssd').textContent = '--';
 }
 
 function stopRec(){
@@ -577,6 +743,12 @@ function stopRec(){
   if(csv.length > 0){
     $('bDl').disabled = false;
   }
+
+  // Bao ESP32 dung dem va tu chay thuat toan SOTA (bandpass + Elgendi + FFT +
+  // hop nhat) tren toan bo doan PPG vua ghi -> ket qua se ve qua onSotaResult()
+  sendSotaCommand(0);
+  $('sotaBadge').textContent = 'ESP32 đang xử lý SOTA...';
+  $('sotaBadge').className = 'sota-badge wait';
 }
 
 function getFilename(){
@@ -602,7 +774,15 @@ function incrementCounter(){
   localStorage.setItem(storageKey, String(count + 1));
 }
 
-const CSV_HEADER = 'timestamp_ms,accX_g,accY_g,accZ_g,gyrX_dps,gyrY_dps,gyrZ_dps,magX_uT,magY_uT,magZ_uT,activity\n';
+const CSV_HEADER = 'timestamp_ms,accX_g,accY_g,accZ_g,gyrX_dps,gyrY_dps,gyrZ_dps,magX_uT,magY_uT,magZ_uT,pulse_raw,activity\n';
+
+// Dong tom tat ket qua SOTA (tinh boi ESP32 luc bam Dung) duoc chen lam
+// comment o dau file CSV de khong pha vo cau truc bang du lieu chinh
+function getSotaSummaryComment(){
+  const fused = $('sotaFused').textContent;
+  if(fused === '--') return '';
+  return `# SOTA_HEART_RATE fused_bpm=${fused} time_bpm=${$('sotaTime').textContent} spectral_bpm=${$('sotaSpectral').textContent} rmssd=${$('sotaRmssd').textContent} confidence=${$('sotaBadge').textContent}\n`;
+}
 
 function openExportModal(){
   if(!csv.length){
@@ -610,7 +790,7 @@ function openExportModal(){
     return;
   }
   const filename = getFilename();
-  const csvContent = CSV_HEADER + csv.join('\n');
+  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
   $('modalSamples').textContent = `${csv.length} mẫu • ${filename}`;
   $('csvPreviewArea').value = csvContent;
   $('exportModal').style.display = 'flex';
@@ -623,7 +803,7 @@ function closeExportModal(){
 async function actionShare(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = CSV_HEADER + csv.join('\n');
+  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
 
   try {
     const file = new File([csvContent], filename, { type: 'text/csv' });
@@ -657,7 +837,7 @@ async function actionShare(){
 function actionCopy(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = CSV_HEADER + csv.join('\n');
+  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
   
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(csvContent).then(() => {
@@ -686,7 +866,7 @@ function fallbackManualCopy(text){
 function actionDirectDownload(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = CSV_HEADER + csv.join('\n');
+  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
 
   try {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -728,6 +908,12 @@ function clearRec(){
   $('rCnt').textContent = '0';
   $('rTime').textContent = '00:00';
   $('rHz').textContent = '0';
+  $('sotaBadge').textContent = 'Chưa có';
+  $('sotaBadge').className = 'sota-badge wait';
+  $('sotaFused').textContent = '--';
+  $('sotaTime').textContent = '--';
+  $('sotaSpectral').textContent = '--';
+  $('sotaRmssd').textContent = '--';
   closeExportModal();
 }
 

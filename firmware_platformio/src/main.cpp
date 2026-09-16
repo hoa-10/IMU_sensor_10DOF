@@ -59,9 +59,10 @@ int pulseRawLatest = 0;
 // Thuat toan: Bandpass Butterworth bac 4 (zero-phase 2 chieu) + Elgendi Two-
 // Moving-Average peak detection + FFT pho tan so + hop nhat da mien (giong het
 // logic RobustHeartRateEstimator trong advanced_pulse_dsp.py, port sang C++).
-#define MAX_SOTA_SAMPLES 3500   // ~70s @ 50Hz, du cho 1 trial 60s
+#define MAX_SOTA_SAMPLES 800    // ~16s @ 50Hz, du du cho 1 cua so 10s + du phong jitter
 #define FFT_SIZE 4096
 #define SOTA_MIN_SAMPLES 250    // toi thieu ~5s du lieu moi xu ly
+#define SOTA_WINDOW_MS 10000    // cu 10s la tu dong chay SOTA 1 lan roi reset dem tiep
 
 // He so Butterworth bac 4, dai thong 0.6-3.5Hz, thiet ke san cho fs = 50Hz
 // (tinh bang scipy.signal.butter(4, [0.6/25, 3.5/25], btype='band'))
@@ -82,6 +83,8 @@ volatile bool pulseRecording = false;
 volatile bool sotaProcessRequested = false;
 unsigned long pulseRecStartMillis = 0;
 unsigned long pulseRecEndMillis = 0;
+unsigned long pulseWindowStartMillis = 0; // moc thoi gian bat dau cua so 10s hien tai
+int pulseWindowIndex = 0;                 // so thu tu cua so (0,1,2,... tang moi 10s)
 
 ArduinoFFT<float> FFT = ArduinoFFT<float>();
 
@@ -382,17 +385,24 @@ SotaResult computeSotaHeartRate(const int16_t* rawBuf, int n, float fs) {
   return r;
 }
 
-// Ket qua SOTA gui qua BLE: 8 x int16 = 16 byte
+// Ket qua SOTA gui qua BLE: 10 x int16 = 20 byte
 // [0] fused_bpm*10 [1] time_bpm*10 [2] spectral_bpm*10 [3] ibi_median_ms
 // [4] rmssd_ms [5] confidence (-1/0/1/2) [6] peak_count [7] fs_used*10
-int16_t sotaResultPacket[8] = {0};
+// [8] window_index (0,1,2,... - moi 10s tang 1) [9] window_start_s (giay,
+// tinh tu luc bam Bat dau ghi - de app ghep thanh chuoi thoi gian nhip tim)
+int16_t sotaResultPacket[10] = {0};
 
+// Chay thuat toan SOTA tren du lieu dang co trong pulseBuf (1 cua so ~10s,
+// hoac phan con lai neu la cua so cuoi cung luc bam Dung). Ham nay duoc goi
+// tu dong moi 10s trong suot qua trinh ghi, KHONG chi goi 1 lan luc Dung.
 void runSotaAnalysis() {
   int n = pulseBufCount;
-  unsigned long elapsedMs = pulseRecEndMillis - pulseRecStartMillis;
+  unsigned long elapsedMs = pulseRecEndMillis - pulseWindowStartMillis;
   float fs = (n > 1 && elapsedMs > 0) ? ((float)n / (elapsedMs / 1000.0f)) : 50.0f;
+  unsigned long windowStartS = (pulseWindowStartMillis - pulseRecStartMillis) / 1000;
 
-  Serial.printf("[SOTA] Bat dau phan tich: %d mau, fs uoc tinh = %.2f Hz\n", n, fs);
+  Serial.printf("[SOTA] Cua so #%d (bat dau %lus): phan tich %d mau, fs uoc tinh = %.2f Hz\n",
+                pulseWindowIndex, windowStartS, n, fs);
   unsigned long t0 = millis();
 
   SotaResult res = computeSotaHeartRate(pulseBuf, n, fs);
@@ -409,6 +419,8 @@ void runSotaAnalysis() {
   sotaResultPacket[5] = (int16_t)(res.confidence);
   sotaResultPacket[6] = (int16_t)(res.peakCount);
   sotaResultPacket[7] = (int16_t)(res.fsUsed * 10.0f);
+  sotaResultPacket[8] = (int16_t)(pulseWindowIndex);
+  sotaResultPacket[9] = (int16_t)(windowStartS);
 
   if (pSotaCharacteristic != nullptr) {
     pSotaCharacteristic->setValue((uint8_t*)sotaResultPacket, sizeof(sotaResultPacket));
@@ -437,12 +449,19 @@ class SotaControlCallbacks: public NimBLECharacteristicCallbacks {
       pulseBufCount = 0;
       pulseRecStartMillis = millis();
       pulseRecEndMillis = pulseRecStartMillis;
+      pulseWindowStartMillis = pulseRecStartMillis;
+      pulseWindowIndex = 0;
       pulseRecording = true;
-      Serial.println("[SOTA] Bat dau dem PPG cho phan tich SOTA...");
+      Serial.println("[SOTA] Bat dau dem PPG, cu 10s se tu chay SOTA 1 lan...");
     } else if (cmd == 0) {
       pulseRecording = false;
-      sotaProcessRequested = true;
-      Serial.println("[SOTA] Dung dem, cho xu ly SOTA trong loop()...");
+      // Neu con du lieu cua so cuoi cung (>= toi thieu) thi xu ly not, khong bo phi
+      if (pulseBufCount >= SOTA_MIN_SAMPLES) {
+        sotaProcessRequested = true;
+        Serial.println("[SOTA] Dung dem, xu ly not cua so cuoi cung...");
+      } else {
+        Serial.println("[SOTA] Dung dem, cua so cuoi qua ngan nen bo qua.");
+      }
     }
   }
 };
@@ -669,6 +688,12 @@ void loop() {
     if (pulseRecording && pulseBufCount < MAX_SOTA_SAMPLES) {
       pulseBuf[pulseBufCount++] = (int16_t)pulseRawLatest;
       pulseRecEndMillis = now;
+
+      // Du 10s cho cua so hien tai -> yeu cau xu ly SOTA (thuc hien ngoai
+      // block 50Hz nay, trong loop() ben duoi, de khong lam cham nhip doc cam bien)
+      if (now - pulseWindowStartMillis >= SOTA_WINDOW_MS) {
+        sotaProcessRequested = true;
+      }
     }
 
     // 9 x int16 IMU (18 bytes)
@@ -701,10 +726,19 @@ void loop() {
     }
   }
 
-  // Xu ly SOTA duoc yeu cau tu app (chay 1 lan, ngoai nhip 50Hz de khong lam
-  // treo viec doc cam bien/BLE lau hon can thiet)
+  // Xu ly SOTA duoc yeu cau (moi 10s trong luc ghi, hoac 1 lan cuoi luc Dung),
+  // chay ngoai nhip 50Hz de khong treo viec doc cam bien/BLE lau hon can thiet
   if (sotaProcessRequested) {
     sotaProcessRequested = false;
     runSotaAnalysis();
+
+    if (pulseRecording) {
+      // Con dang ghi -> reset buffer, bat dau cua so 10s tiep theo
+      pulseBufCount = 0;
+      pulseWindowStartMillis += SOTA_WINDOW_MS;
+      pulseWindowIndex++;
+    }
+    // Neu da Dung ghi (pulseRecording == false) thi day la cua so cuoi cung,
+    // khong can reset gi them.
   }
 }

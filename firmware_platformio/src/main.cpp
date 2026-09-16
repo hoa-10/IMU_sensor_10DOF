@@ -102,13 +102,17 @@ void initSensors() {
   }
 
   // 4. Pulse Sensor (analog PPG)
-  Serial.println("[INIT] Khoi tao Pulse Sensor tren GPIO 5 (ADC)...");
+  // - Dung ADC_6db (thay vi 11db) de dai do vua khop hon voi muc tin hieu
+  //   thuc te (~1.5V), giam do phan giai mV/ma bi lang phi.
+  // - Dung analogReadMilliVolts() (co hieu chinh eFuse) thay vi analogRead()
+  //   tho, giam meo phi tuyen cua SAR-ADC ESP32 da ghi nhan tren forum.
+  Serial.println("[INIT] Khoi tao Pulse Sensor tren GPIO 5 (ADC, 6dB, calibrated mV)...");
   analogReadResolution(12);
-  analogSetPinAttenuation(PULSE_PIN, ADC_11db);
+  analogSetPinAttenuation(PULSE_PIN, ADC_6db);
 
   long sum = 0;
   for (int i = 0; i < 50; i++) {
-    sum += analogRead(PULSE_PIN);
+    sum += analogReadMilliVolts(PULSE_PIN);
     delay(5);
   }
   pulse_dc_baseline = (float)sum / 50.0f;
@@ -167,12 +171,13 @@ void readSensors() {
 }
 
 // Doc ADC nhieu lan lien tiep roi lay trung binh (oversampling) de giam
-// nhieu ngau nhien cua SAR-ADC ESP32 - test xem tin hieu tim yeu la do
-// nhieu ADC hay do ban chat tin hieu thuc su yeu.
+// nhieu ngau nhien cua SAR-ADC ESP32. Dung analogReadMilliVolts() (co hieu
+// chinh eFuse rieng cho tung chip) thay vi analogRead() tho de giam meo
+// phi tuyen - ca hai la khuyen nghi tu forum ESP32 cho tin hieu bien do nho.
 int readPulseOversampled(int n) {
   long sum = 0;
   for (int i = 0; i < n; i++) {
-    sum += analogRead(PULSE_PIN);
+    sum += analogReadMilliVolts(PULSE_PIN);
   }
   return (int)(sum / n);
 }
@@ -180,7 +185,7 @@ int readPulseOversampled(int n) {
 // Doc + xu ly nhanh 1 mau Pulse Sensor: loc trung binh dong, tach baseline DC,
 // bat dinh bang nguong dong (adaptive threshold) -> chi phuc vu hien thi live.
 void readPulseQuick() {
-  int raw = readPulseOversampled(16);
+  int raw = readPulseOversampled(64);
   pulseRawLatest = raw;
 
   // 1. Loc trung binh dong 4 mau

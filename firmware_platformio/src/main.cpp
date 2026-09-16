@@ -166,10 +166,21 @@ void readSensors() {
   }
 }
 
+// Doc ADC nhieu lan lien tiep roi lay trung binh (oversampling) de giam
+// nhieu ngau nhien cua SAR-ADC ESP32 - test xem tin hieu tim yeu la do
+// nhieu ADC hay do ban chat tin hieu thuc su yeu.
+int readPulseOversampled(int n) {
+  long sum = 0;
+  for (int i = 0; i < n; i++) {
+    sum += analogRead(PULSE_PIN);
+  }
+  return (int)(sum / n);
+}
+
 // Doc + xu ly nhanh 1 mau Pulse Sensor: loc trung binh dong, tach baseline DC,
 // bat dinh bang nguong dong (adaptive threshold) -> chi phuc vu hien thi live.
 void readPulseQuick() {
-  int raw = analogRead(PULSE_PIN);
+  int raw = readPulseOversampled(16);
   pulseRawLatest = raw;
 
   // 1. Loc trung binh dong 4 mau

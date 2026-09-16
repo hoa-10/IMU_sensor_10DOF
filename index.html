@@ -109,26 +109,6 @@
   .val-card.bpm .val-label{color:var(--pulse)} .val-card.ibi .val-label{color:var(--ibi)}
   .val-card.bpm .val-num{font-size:26px}
 
-  /* SOTA Heart Rate Result */
-  .sota-card{
-    background:var(--card);border:1px solid rgba(251,113,133,.25);
-    border-radius:16px;padding:14px 16px;margin-bottom:12px;
-  }
-  .sota-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-  .sota-title{font-size:13px;font-weight:700;color:#fda4af}
-  .sota-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase}
-  .sota-badge.high{background:rgba(34,197,94,.15);color:var(--green)}
-  .sota-badge.medium{background:rgba(245,158,11,.15);color:var(--amber)}
-  .sota-badge.low{background:rgba(239,68,68,.15);color:var(--red)}
-  .sota-badge.wait{background:rgba(255,255,255,.08);color:var(--dim)}
-  .sota-main{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
-  .sota-main .num{font-family:monospace;font-size:34px;font-weight:800;color:#fda4af}
-  .sota-main .unit{font-size:13px;color:var(--sub)}
-  .sota-sub{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-  .sota-sub div{background:rgba(255,255,255,.03);border-radius:10px;padding:6px;text-align:center}
-  .sota-sub .sl{font-size:9px;color:var(--dim);text-transform:uppercase}
-  .sota-sub .sv{font-family:monospace;font-size:13px;font-weight:700;color:#e2e8f0}
-
   /* Chart */
   .chart-wrap{
     background:var(--card);border:1px solid var(--border);
@@ -300,26 +280,6 @@
     <div class="chart-head"><span>Sóng PPG thô (Pulse Sensor)</span><span id="pulseRawVal">ADC: 0</span></div>
     <canvas id="cP" width="380" height="120"></canvas>
   </div>
-
-  <!-- Ket qua nhip tim chinh thuc, tinh boi thuat toan SOTA ngay tren ESP32
-       (Bandpass Butterworth + Elgendi Peak + FFT Spectral + hop nhat da mien)
-       - ESP32 tu dong chay lai cu moi 10 giay trong suot luc ghi, khong chi
-       cho den luc Dung; moi cua so 10s duoc luu thanh 1 dong rieng trong CSV -->
-  <div class="sota-card">
-    <div class="sota-head">
-      <div class="sota-title">💯 Nhịp tim SOTA (ESP32 tự tính mỗi 10s)</div>
-      <span class="sota-badge wait" id="sotaBadge">Chưa có</span>
-    </div>
-    <div class="sota-main">
-      <span class="num" id="sotaFused">--</span>
-      <span class="unit">BPM</span>
-    </div>
-    <div class="sota-sub">
-      <div><div class="sl">Bắt đỉnh</div><div class="sv" id="sotaTime">--</div></div>
-      <div><div class="sl">Phổ tần số</div><div class="sv" id="sotaSpectral">--</div></div>
-      <div><div class="sl">RMSSD</div><div class="sv" id="sotaRmssd">--</div></div>
-    </div>
-  </div>
 </div>
 
 <!-- Record Panel -->
@@ -350,7 +310,7 @@
       <button class="modal-close-btn" onclick="closeExportModal()">✕</button>
     </div>
     <div class="modal-content-inner">
-      <p style="font-size:12px;color:var(--sub);margin-bottom:12px">File CSV đầy đủ 9 trục IMU + sóng PPG thô + nhãn hành vi (kèm dòng tóm tắt nhịp tim SOTA ở đầu file):</p>
+      <p style="font-size:12px;color:var(--sub);margin-bottom:12px">File CSV đầy đủ 9 trục IMU + sóng PPG thô + nhãn hành vi:</p>
 
       <button class="modal-action-btn share" onclick="actionShare()">
         <span class="m-icon">📤</span>
@@ -390,7 +350,6 @@
 <script>
 const SVC = "19b10000-e8f2-537e-4f6c-d104768a1214";
 const CHR = "19b10002-e8f2-537e-4f6c-d104768a1214";
-const SOTA_CHR = "19b10003-e8f2-537e-4f6c-d104768a1214";
 
 const $ = id => document.getElementById(id);
 const N = 120;
@@ -398,11 +357,7 @@ let dev = null, aH = [], gH = [], mH = [], pH = [], pc = 0, lt = performance.now
 let rec = false, csv = [], recStart = 0, rCnt = 0;
 let curTab = 'acc';
 let curActivityName = 'Đi bộ', curActivityKey = 'walking';
-let sotaChar = null;
 let lastPulseRaw = 0, lastQuickBpm = 0, lastIbi = 0;
-let sotaWindowLog = []; // { idx, startS, fusedBpm, timeBpm, spectralBpm, ibiMedian, rmssd, confLabel }
-const CONF_LABEL = { '-1': 'Chưa có', '0': 'Thấp', '1': 'Trung bình', '2': 'Cao' };
-const CONF_CLASS = { '-1': 'wait', '0': 'low', '1': 'medium', '2': 'high' };
 
 function selectActivity(name, key, btn){
   curActivityName = name;
@@ -481,16 +436,6 @@ async function doConnect(retries = 3){
       const ch = await svc.getCharacteristic(CHR);
       await ch.startNotifications();
       ch.addEventListener('characteristicvaluechanged', onData);
-
-      await sleep(200);
-      try {
-        sotaChar = await svc.getCharacteristic(SOTA_CHR);
-        await sotaChar.startNotifications();
-        sotaChar.addEventListener('characteristicvaluechanged', onSotaResult);
-      } catch (sotaErr) {
-        console.warn('Không tìm thấy characteristic SOTA (firmware cũ?)', sotaErr);
-        sotaChar = null;
-      }
 
       $('bleIcon').className = 'ble-icon on';
       $('bleIcon').textContent = '📶';
@@ -594,53 +539,6 @@ function onData(e){
   }
 }
 
-// Ket qua nhip tim SOTA tu ESP32 (10 x int16 = 20 byte). Gio day ESP32 tu
-// dong gui ket qua nay cu MOI 10 GIAY trong suot qua trinh ghi (khong chi 1
-// lan luc Dung), moi lan la 1 "cua so" rieng -> ghep thanh chuoi thoi gian
-// nhip tim va luu het vao CSV luc xuat file.
-function onSotaResult(e){
-  const d = e.target.value;
-  if(d.byteLength < 16) return;
-
-  const fusedBpm = d.getInt16(0, true) / 10.0;
-  const timeBpm = d.getInt16(2, true) / 10.0;
-  const spectralBpm = d.getInt16(4, true) / 10.0;
-  const ibiMedian = d.getInt16(6, true);
-  const rmssd = d.getInt16(8, true);
-  const confidence = d.getInt16(10, true);
-  const peakCount = d.getInt16(12, true);
-  const fsUsed = d.getInt16(14, true) / 10.0;
-  const windowIdx = d.byteLength >= 20 ? d.getInt16(16, true) : sotaWindowLog.length;
-  const windowStartS = d.byteLength >= 20 ? d.getInt16(18, true) : 0;
-
-  const confLabel = CONF_LABEL[confidence] ?? '--';
-
-  if(confidence === -1){
-    $('sotaBadge').textContent = 'Không đủ dữ liệu';
-    $('sotaBadge').className = 'sota-badge wait';
-    $('sotaFused').textContent = '--';
-    $('sotaTime').textContent = '--';
-    $('sotaSpectral').textContent = '--';
-    $('sotaRmssd').textContent = '--';
-    return;
-  }
-
-  $('sotaFused').textContent = fusedBpm.toFixed(1);
-  $('sotaTime').textContent = timeBpm > 0 ? `${timeBpm.toFixed(1)} bpm` : '--';
-  $('sotaSpectral').textContent = `${spectralBpm.toFixed(1)} bpm`;
-  $('sotaRmssd').textContent = `${rmssd} ms`;
-  $('sotaBadge').textContent = `${confLabel} • Cửa sổ #${windowIdx} (${windowStartS}s)`;
-  $('sotaBadge').className = 'sota-badge ' + (CONF_CLASS[confidence] ?? 'wait');
-
-  // Luu vao chuoi thoi gian nhip tim - moi cua so 10s la 1 dong rieng
-  sotaWindowLog.push({
-    idx: windowIdx, startS: windowStartS,
-    fusedBpm, timeBpm, spectralBpm, ibiMedian, rmssd, confLabel
-  });
-
-  console.log(`[SOTA] window#${windowIdx} @${windowStartS}s fused=${fusedBpm} time=${timeBpm} spectral=${spectralBpm} ibi=${ibiMedian}ms rmssd=${rmssd}ms peaks=${peakCount} fs=${fsUsed}Hz`);
-}
-
 // Render Loops
 const cA = $('cA').getContext('2d'), cG = $('cG').getContext('2d'), cM = $('cM').getContext('2d'), cP = $('cP').getContext('2d');
 const cAc = $('cA'), cGc = $('cG'), cMc = $('cM'), cPc = $('cP');
@@ -709,17 +607,6 @@ function draw(ctx, cv, h, s, c){
   }
 }
 
-// Ghi 1 byte lenh xuong ESP32 qua characteristic SOTA: 1 = bat dau dem PPG,
-// 0 = dung dem va yeu cau ESP32 chay thuat toan SOTA tren toan bo doan da ghi
-async function sendSotaCommand(cmd){
-  if(!sotaChar) return;
-  try {
-    await sotaChar.writeValue(new Uint8Array([cmd]));
-  } catch(err){
-    console.warn('Không gửi được lệnh SOTA tới ESP32', err);
-  }
-}
-
 // Record Controls
 function startRec(){
   rec = true;
@@ -735,17 +622,6 @@ function startRec(){
   $('rCnt').textContent = '0';
   $('rTime').textContent = '00:00';
   $('rHz').textContent = '0';
-
-  // Bao ESP32 bat dau dem PPG - cu 10s ESP32 se tu chay SOTA 1 lan va gui ket
-  // qua ve, lap lai lien tuc cho den khi Dung
-  sotaWindowLog = [];
-  sendSotaCommand(1);
-  $('sotaBadge').textContent = 'Đang ghi... (chờ đủ 10s đầu tiên)';
-  $('sotaBadge').className = 'sota-badge wait';
-  $('sotaFused').textContent = '--';
-  $('sotaTime').textContent = '--';
-  $('sotaSpectral').textContent = '--';
-  $('sotaRmssd').textContent = '--';
 }
 
 function stopRec(){
@@ -759,13 +635,6 @@ function stopRec(){
   if(csv.length > 0){
     $('bDl').disabled = false;
   }
-
-  // Bao ESP32 dung dem - ESP32 se xu ly not cua so cuoi cung (neu du du lieu)
-  // roi gui ket qua ve qua onSotaResult(). Cac cua so 10s truoc do da co ket
-  // qua roi (luu san trong sotaWindowLog), khong can doi lai tu dau.
-  sendSotaCommand(0);
-  $('sotaBadge').textContent = 'ESP32 đang xử lý cửa sổ cuối...';
-  $('sotaBadge').className = 'sota-badge wait';
 }
 
 function getFilename(){
@@ -793,23 +662,13 @@ function incrementCounter(){
 
 const CSV_HEADER = 'timestamp_ms,accX_g,accY_g,accZ_g,gyrX_dps,gyrY_dps,gyrZ_dps,magX_uT,magY_uT,magZ_uT,pulse_raw,activity\n';
 
-// Chuoi thoi gian nhip tim SOTA - moi cua so 10s ESP32 tu tinh 1 lan trong
-// luc ghi la 1 dong comment rieng, chen o dau file CSV (khong pha vo cau
-// truc bang du lieu chinh, van la 1 file duy nhat)
-function getSotaSummaryComment(){
-  if(!sotaWindowLog.length) return '';
-  return sotaWindowLog.map(w =>
-    `# SOTA_WINDOW idx=${w.idx} start_s=${w.startS} fused_bpm=${w.fusedBpm.toFixed(1)} time_bpm=${w.timeBpm.toFixed(1)} spectral_bpm=${w.spectralBpm.toFixed(1)} ibi_median_ms=${w.ibiMedian} rmssd_ms=${w.rmssd} confidence=${w.confLabel}`
-  ).join('\n') + '\n';
-}
-
 function openExportModal(){
   if(!csv.length){
     alert("Chưa có dữ liệu để xuất!");
     return;
   }
   const filename = getFilename();
-  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
+  const csvContent = CSV_HEADER + csv.join('\n');
   $('modalSamples').textContent = `${csv.length} mẫu • ${filename}`;
   $('csvPreviewArea').value = csvContent;
   $('exportModal').style.display = 'flex';
@@ -822,7 +681,7 @@ function closeExportModal(){
 async function actionShare(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
+  const csvContent = CSV_HEADER + csv.join('\n');
 
   try {
     const file = new File([csvContent], filename, { type: 'text/csv' });
@@ -856,7 +715,7 @@ async function actionShare(){
 function actionCopy(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
+  const csvContent = CSV_HEADER + csv.join('\n');
   
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(csvContent).then(() => {
@@ -885,7 +744,7 @@ function fallbackManualCopy(text){
 function actionDirectDownload(){
   if(!csv.length) return;
   const filename = getFilename();
-  const csvContent = getSotaSummaryComment() + CSV_HEADER + csv.join('\n');
+  const csvContent = CSV_HEADER + csv.join('\n');
 
   try {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -927,13 +786,6 @@ function clearRec(){
   $('rCnt').textContent = '0';
   $('rTime').textContent = '00:00';
   $('rHz').textContent = '0';
-  sotaWindowLog = [];
-  $('sotaBadge').textContent = 'Chưa có';
-  $('sotaBadge').className = 'sota-badge wait';
-  $('sotaFused').textContent = '--';
-  $('sotaTime').textContent = '--';
-  $('sotaSpectral').textContent = '--';
-  $('sotaRmssd').textContent = '--';
   closeExportModal();
 }
 

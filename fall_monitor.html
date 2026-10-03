@@ -786,8 +786,8 @@
     document.getElementById('valTilt').innerHTML = `${tiltDeg.toFixed(1)}<span class="metric-unit">°</span>`;
     document.getElementById('tiltBadge').textContent = `Góc nghiêng: ${tiltDeg.toFixed(1)}°`;
 
-    // FALL CONDITION: Impact >= 1.6g AND Tilt >= 40.0°
-    if (impactSample && impactSample.svm >= 1.60 && tiltDeg >= 40.0) {
+    // FALL CONDITION: Impact >= 1.6g AND Tilt >= 50.0°
+    if (impactSample && impactSample.svm >= 1.60 && tiltDeg >= 50.0) {
       triggerFallAlert(impactSample.svm, tiltDeg);
     } else if (tiltDeg >= 20.0) {
       // SUSPECTED

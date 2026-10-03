@@ -392,6 +392,17 @@ async function go(){
   if(!navigator.bluetooth){ alert("Vui lòng dùng trình duyệt Google Chrome hoặc Edge!"); return; }
   try{
     $('bleIcon').className = 'ble-icon wait';
+    if (!navigator.bluetooth) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isIOS) {
+        alert("⚠️ BẠN ĐANG DÙNG IPHONE (iOS):\n\nDo chính sách của Apple, Chrome & Safari thường trên iPhone BỊ CHẶN Web Bluetooth.\n\n👉 CÁCH DÙNG TRÊN IPHONE:\n1. Vào App Store, tải app miễn phí: 'Bluefy - Web BLE Browser'\n2. Dán link trang web này vào Bluefy là Bluetooth kết nối mượt mà 100%!");
+        $('bleSub').textContent = "Cần mở bằng app 'Bluefy' trên App Store để dùng Bluetooth trên iPhone";
+      } else {
+        alert("⚠️ Trình duyệt hiện tại chưa hỗ trợ Web Bluetooth. Vui lòng mở bằng Google Chrome hoặc Microsoft Edge.");
+      }
+      return;
+    }
+
     $('bleName').textContent = 'Đang quét thiết bị...';
     $('bleSub').textContent = 'Chọn ESP32_IMU trong danh sách';
 

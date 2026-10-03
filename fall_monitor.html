@@ -611,8 +611,19 @@
   }
 
   async function connectBluetooth() {
+    initAudio();
+    if (!navigator.bluetooth) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isIOS) {
+        alert("⚠️ BẠN ĐANG MỞ TRÊN IPHONE (iOS):\n\nDo chính sách của Apple, trình duyệt Chrome & Safari thường trên iPhone BỊ CHẶN Web Bluetooth.\n\n👉 CÁCH DÙNG TRÊN IPHONE:\n1. Vào App Store, tìm tải app miễn phí: 'Bluefy - Web BLE Browser'\n2. Dán link trang web này vào Bluefy là Bluetooth kết nối ESP32_IMU mượt mà 100%!");
+        document.getElementById('devSub').innerHTML = "⚠️ Trên iPhone: Tải app miễn phí <b>Bluefy (Web BLE Browser)</b> từ App Store để kết nối Bluetooth.";
+      } else {
+        alert("⚠️ Trình duyệt hiện tại chưa hỗ trợ Web Bluetooth. Vui lòng mở bằng Google Chrome hoặc Microsoft Edge.");
+      }
+      return;
+    }
+
     try {
-      initAudio();
       document.getElementById('devSub').textContent = "Đang tìm kiếm thiết bị 'ESP32_IMU'...";
       bleDevice = await navigator.bluetooth.requestDevice({
         filters: [{ name: "ESP32_IMU" }, { services: [BLE_SERVICE_UUID] }],
@@ -864,9 +875,15 @@
     banner.className = 'status-banner alarm';
     document.getElementById('statusIcon').textContent = '🆘';
     document.getElementById('statusTitle').textContent = 'ĐÃ GỬI TÍN HIỆU CỨU HỘ KHẨN CẤP (SOS)!';
-    document.getElementById('statusDesc').textContent = 'Đang chuyển tiếp thông tin vị trí & dữ liệu IMU đến người thân và y tế...';
+    document.getElementById('statusDesc').textContent = 'Đang kích hoạt cuộc gọi khẩn cấp đến cứu hộ / người thân...';
 
-    alert("🚨 ĐÃ KÍCH HOẠT CỨU HỘ SOS!\n\nHệ thống đã lưu sự kiện té ngã khẩn cấp vào nhật ký cứu hộ.");
+    // Trên iPhone / Mobile: kích hoạt cuộc gọi điện thoại khẩn cấp
+    const savedPhone = localStorage.getItem('emergency_contact') || '115';
+    const emergencyNum = prompt("🚨 ĐÃ KÍCH HOẠT CỨU HỘ SOS!\n\nNhấn OK để gọi số khẩn cấp trên điện thoại:", savedPhone);
+    if (emergencyNum) {
+      localStorage.setItem('emergency_contact', emergencyNum);
+      window.location.href = "tel:" + emergencyNum;
+    }
   }
 
   function simulateFallAlert(peakG, tiltDeg) {

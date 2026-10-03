@@ -41,6 +41,7 @@ pio run -e esp32s3 -t upload
 ```
 
 ### 2. Mở Giao diện Web
-1. Mở tệp `index.html` bằng trình duyệt Google Chrome hoặc Microsoft Edge.
-2. Bấm **"Kết nối Bluetooth"** và chọn thiết bị **`ESP32_IMU`**.
-3. Bắt đầu xem dữ liệu và thu thập tập dữ liệu CSV!
+1. **Thu thập Dataset**: Mở tệp `index.html` bằng trình duyệt Google Chrome hoặc Microsoft Edge.
+2. **Giám sát Té ngã Thời Gian Thực**: Mở tệp `fall_monitor.html` (hoặc nhấn nút *"🚨 Giám sát Té ngã"* ở góc trên thanh công cụ của `index.html`).
+3. Bấm **"Kết nối Bluetooth"** và chọn thiết bị **`ESP32_IMU`**.
+4. Hệ thống sẽ tự động phát hiện va chạm ($\ge 1.6g$) và góc nghiêng đổi dáng ($\ge 40^\circ$) để cảnh báo còi hú SOS và đếm ngược 15 giây!

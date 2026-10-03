@@ -53,9 +53,12 @@ int pulse_rate_idx = 0;
 int pulseRawLatest = 0;
 
 class ServerCallbacks: public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer* pServer) {
+    void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) {
         deviceConnected = true;
         Serial.println("[BLE] Client Connected!");
+        // Thiet lap thong so ket noi toi uu cho iOS / BLE:
+        // 16 * 1.25ms = 20ms interval (chuan 50Hz), timeout = 400 * 10ms = 4000ms (tranh ngat dot ngot)
+        pServer->updateConnParams(desc->conn_handle, 16, 20, 0, 400);
     };
     void onDisconnect(NimBLEServer* pServer) {
         deviceConnected = false;
@@ -185,7 +188,9 @@ int readPulseOversampled(int n) {
 // Doc + xu ly nhanh 1 mau Pulse Sensor: loc trung binh dong, tach baseline DC,
 // bat dinh bang nguong dong (adaptive threshold) -> chi phuc vu hien thi live.
 void readPulseQuick() {
-  int raw = readPulseOversampled(64);
+  // Giam oversampling tu 64 xuong 8 mau: tiet kiem ~11ms CPU moi chu ky 20ms,
+  // giup CPU khong bi qua tai va NimBLE BLE stack khong bi drop goi / mat ket noi.
+  int raw = readPulseOversampled(8);
   pulseRawLatest = raw;
 
   // 1. Loc trung binh dong 4 mau
@@ -251,12 +256,14 @@ void setup() {
   delay(1000);
   Serial.println("\n[SYSTEM] Khoi dong ESP32-S3 9DOF + Pulse Sensor BLE 50Hz...");
 
-  Wire.begin(SDA_PIN, SCL_PIN, 100000);
+  // Tang toc I2C tu 100kHz len 400kHz (Fast Mode): giam thoi gian doc 3 cam bien tu 6ms xuong 1.5ms
+  Wire.begin(SDA_PIN, SCL_PIN, 400000);
   Wire.setTimeOut(10);
   initSensors();
 
   NimBLEDevice::init("ESP32_IMU");
-  NimBLEDevice::setPower(ESP_PWR_LVL_P3);
+  // Tang cong suat phat song Bluetooth len muc cuc dai (+9dBm) de xuyen vat can / co the nguoi tot hon, khong bi rot goi
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
   pServer = NimBLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
@@ -318,5 +325,8 @@ void loop() {
                     pulseRawLatest, pulseQuickBPM, pulseIBI,
                     deviceConnected ? "DA KET NOI (50Hz)" : "DANG CHO KET NOI");
     }
+  } else {
+    // Nhuong quyen CPU 1ms cho FreeRTOS de Bluetooth Controller va Host stack xu ly song vo tuyen muot ma
+    delay(1);
   }
 }

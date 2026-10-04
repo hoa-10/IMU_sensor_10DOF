@@ -786,8 +786,18 @@
     document.getElementById('valTilt').innerHTML = `${tiltDeg.toFixed(1)}<span class="metric-unit">°</span>`;
     document.getElementById('tiltBadge').textContent = `Góc nghiêng: ${tiltDeg.toFixed(1)}°`;
 
-    // FALL CONDITION: Impact >= 1.6g AND Tilt >= 50.0°
-    if (impactSample && impactSample.svm >= 1.60 && tiltDeg >= 50.0) {
+    // Peak rotation speed around the impact: from 0.2 s before the trigger to 1.0 s after (trigger sits at index n-101).
+    // A fall is a fast topple (measured >= 261 deg/s, median ~760); lying down on purpose is a slow roll (102-136 deg/s).
+    const kIdx = n - 101;
+    let gyroMax = 0;
+    for (let i = Math.max(0, kIdx - 10); i < Math.min(n, kIdx + 50); i++) {
+      const b = fallBuffer[i];
+      const gmag = Math.sqrt(b.gx * b.gx + b.gy * b.gy + b.gz * b.gz);
+      if (gmag > gyroMax) gyroMax = gmag;
+    }
+
+    // FALL CONDITION: Impact >= 1.6g AND Tilt >= 50.0° AND peak rotation >= 200 deg/s
+    if (impactSample && impactSample.svm >= 1.60 && tiltDeg >= 50.0 && gyroMax >= 200.0) {
       triggerFallAlert(impactSample.svm, tiltDeg);
     } else if (tiltDeg >= 20.0) {
       // SUSPECTED
@@ -795,7 +805,7 @@
       banner.className = 'status-banner warning';
       document.getElementById('statusIcon').textContent = '🔔';
       document.getElementById('statusTitle').textContent = 'NGHI VẤN VA CHẠM / TRƯỢT NGÃ';
-      document.getElementById('statusDesc').textContent = `Xung lực ${impactSample ? impactSample.svm.toFixed(2) : 0}g, góc nghiêng ${tiltDeg.toFixed(1)}° (Chưa đến ngưỡng ngã)`;
+      document.getElementById('statusDesc').textContent = `Xung lực ${impactSample ? impactSample.svm.toFixed(2) : 0}g, góc nghiêng ${tiltDeg.toFixed(1)}°, xoay ${gyroMax.toFixed(0)}°/s (Chưa đến ngưỡng ngã)`;
       setTimeout(() => {
         if (!countdownTimer) {
           banner.className = 'status-banner';

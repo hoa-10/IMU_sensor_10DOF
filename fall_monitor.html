@@ -631,22 +631,43 @@
       });
 
       bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-      document.getElementById('devSub').textContent = "Đang kết nối GATT...";
 
-      bleServer = await bleDevice.gatt.connect();
-      const service = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
-      bleChar = await service.getCharacteristic(BLE_CHAR_UUID);
-
-      await bleChar.startNotifications();
+      // GATT connect often fails on the first try (iOS/Bluefy, ESP32 still finishing the previous link): retry 3 times
+      for (let i = 1; i <= 3; i++) {
+        try {
+          document.getElementById('devSub').textContent = `Đang kết nối GATT... (lần ${i}/3)`;
+          bleServer = await bleDevice.gatt.connect();
+          await new Promise(r => setTimeout(r, 500));
+          const service = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
+          bleChar = await service.getCharacteristic(BLE_CHAR_UUID);
+          await bleChar.startNotifications();
+          break;
+        } catch (e) {
+          if (bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+          if (i === 3) throw e;
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
       bleChar.addEventListener('characteristicvaluechanged', handleBleNotification);
 
       isConnected = true;
       updateConnectionUI(true);
     } catch (err) {
       console.error("BLE Error:", err);
-      document.getElementById('devSub').textContent = "Lỗi kết nối: " + err.message;
+      document.getElementById('devSub').textContent = "Lỗi kết nối: " + bleErrorText(err);
       updateConnectionUI(false);
     }
+  }
+
+  // Bluefy / some browsers reject with a string or an object without .message -> show whatever is there
+  function bleErrorText(err) {
+    if (!err) return "không rõ (trình duyệt không trả thông tin lỗi)";
+    if (typeof err === 'string') return err;
+    const name = err.name || '', msg = err.message || '';
+    if (name === 'NotFoundError') return "không chọn thiết bị nào, hoặc không thấy ESP32_IMU (ESP32 có đang bật và phát BLE không?)";
+    if (name === 'NetworkError') return "mất kết nối GATT. Thử: tắt/bật Bluetooth điện thoại, reset ESP32, rồi kết nối lại";
+    if (name === 'SecurityError') return "trang phải mở qua https (link GitHub Pages), không mở file trực tiếp";
+    return (name + (msg ? ": " + msg : "")) || JSON.stringify(err) || String(err);
   }
 
   function disconnectBluetooth() {
